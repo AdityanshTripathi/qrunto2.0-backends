@@ -1,0 +1,1 @@
+{"version":3,"file":"subscription.service.d.ts","sourceRoot":"","sources":["../../src/services/subscription.service.ts"],"names":[],"mappings":"AAEA,OAAO,EAAE,oBAAoB,EAAE,MAAM,yCAAyC,CAAC;AAM/E,qBAAa,mBAAmB;IACxB,yBAAyB,CAAC,YAAY,EAAE,MAAM,EAAE,MAAM,EAAE,MAAM,GAAG,OAAO,CAAC,oBAAoB,CAAC;IAwB9F,qBAAqB,CAAC,YAAY,EAAE,MAAM,GAAG,OAAO,CAAC,oBAAoB,GAAG,IAAI,CAAC;CAGxF"}
