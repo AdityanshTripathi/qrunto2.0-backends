@@ -14,6 +14,7 @@ export declare class MenuItemRepository {
         imageUrl?: string | null;
         isAvailable?: boolean;
         isFeatured?: boolean;
+        foodType?: string;
     }): Promise<MenuItem>;
     update(id: string, restaurantId: string, data: Partial<Omit<MenuItem, 'id' | 'restaurantId' | 'createdAt' | 'updatedAt'>>): Promise<MenuItem>;
     delete(id: string, restaurantId: string): Promise<MenuItem>;

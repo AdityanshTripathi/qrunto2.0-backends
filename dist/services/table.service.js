@@ -16,7 +16,7 @@ const prisma_1 = require("../lib/prisma");
 const tableRepository = new table_repository_1.TableRepository();
 const subscriptionRepository = new subscription_repository_1.SubscriptionRepository();
 // Base URL for QR codes - used as the value encoded in the QR
-const APP_BASE_URL = process.env.APP_BASE_URL || 'https://qrunto.vercel.app';
+const APP_BASE_URL = process.env.APP_BASE_URL || 'https://qrunto-frontend-ten.vercel.app';
 class TableService {
     getTables(restaurantId) {
         return __awaiter(this, void 0, void 0, function* () {

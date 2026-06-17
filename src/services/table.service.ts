@@ -7,7 +7,7 @@ const tableRepository = new TableRepository();
 const subscriptionRepository = new SubscriptionRepository();
 
 // Base URL for QR codes - used as the value encoded in the QR
-const APP_BASE_URL = process.env.APP_BASE_URL || 'https://qrunto.vercel.app';
+const APP_BASE_URL = process.env.APP_BASE_URL || 'https://qrunto-frontend-ten.vercel.app';
 
 
 export class TableService {

@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { prisma } from './src/lib/prisma';
 
 async function updateQrUrls() {
-  const TARGET_URL = 'https://qrunto.vercel.app';
+  const TARGET_URL = 'https://qrunto-frontend-ten.vercel.app';
   console.log('Fetching all tables...');
   
   const tables = await prisma.restaurantTable.findMany();
@@ -18,12 +18,17 @@ async function updateQrUrls() {
 
     // Check if URL contains old frontend Vercel domain
     if (newUrl.includes('frontend-ecru-beta-98.vercel.app')) {
-      newUrl = newUrl.replace('frontend-ecru-beta-98.vercel.app', 'qrunto.vercel.app');
+      newUrl = newUrl.replace('https://frontend-ecru-beta-98.vercel.app', TARGET_URL);
       needsUpdate = true;
     }
     // Check if URL contains localhost:5173
     else if (newUrl.includes('localhost:5173')) {
-      newUrl = newUrl.replace('http://localhost:5173', 'https://qrunto.vercel.app');
+      newUrl = newUrl.replace('http://localhost:5173', TARGET_URL);
+      needsUpdate = true;
+    }
+    // Check if URL contains old qrunto.vercel.app
+    else if (newUrl.includes('qrunto.vercel.app')) {
+      newUrl = newUrl.replace('https://qrunto.vercel.app', TARGET_URL);
       needsUpdate = true;
     }
 

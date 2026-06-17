@@ -12,6 +12,7 @@ export declare class MenuItemService {
         imageUrl?: string | null;
         isAvailable?: boolean;
         isFeatured?: boolean;
+        foodType?: string;
     }): Promise<MenuItem>;
     updateMenuItem(id: string, restaurantId: string, data: {
         categoryId?: string;
@@ -21,6 +22,7 @@ export declare class MenuItemService {
         imageUrl?: string | null;
         isAvailable?: boolean;
         isFeatured?: boolean;
+        foodType?: string;
     }): Promise<MenuItem>;
     deleteMenuItem(id: string, restaurantId: string): Promise<MenuItem>;
 }
