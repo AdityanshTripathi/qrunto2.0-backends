@@ -26,6 +26,7 @@ export class MenuItemService {
       imageUrl?: string | null;
       isAvailable?: boolean;
       isFeatured?: boolean;
+      foodType?: string;
     }
   ): Promise<MenuItem> {
     // 1. Enforce subscription plan limits
@@ -64,6 +65,7 @@ export class MenuItemService {
       imageUrl?: string | null;
       isAvailable?: boolean;
       isFeatured?: boolean;
+      foodType?: string;
     }
   ): Promise<MenuItem> {
     // 1. Verify existence and ownership of menu item

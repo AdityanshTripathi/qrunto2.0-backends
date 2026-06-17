@@ -12,6 +12,7 @@ const CreateMenuItemSchema = z.object({
   imageUrl: z.string().nullable().optional(),
   isAvailable: z.boolean().optional(),
   isFeatured: z.boolean().optional(),
+  foodType: z.enum(['veg', 'nonveg']),
 });
 
 const UpdateMenuItemSchema = z.object({
@@ -22,6 +23,7 @@ const UpdateMenuItemSchema = z.object({
   imageUrl: z.string().nullable().optional(),
   isAvailable: z.boolean().optional(),
   isFeatured: z.boolean().optional(),
+  foodType: z.enum(['veg', 'nonveg']).optional(),
 });
 
 export class MenuItemController {
@@ -108,10 +110,12 @@ export class MenuItemController {
         imageUrl?: string | null;
         isAvailable?: boolean;
         isFeatured?: boolean;
+        foodType: string;
       } = {
         categoryId: data.categoryId,
         name: data.name,
         price: data.price,
+        foodType: data.foodType,
       };
 
       if (data.description !== undefined) payload.description = data.description;
@@ -161,6 +165,7 @@ export class MenuItemController {
         imageUrl?: string | null;
         isAvailable?: boolean;
         isFeatured?: boolean;
+        foodType?: string;
       } = {};
 
       if (data.categoryId !== undefined) payload.categoryId = data.categoryId;
@@ -170,6 +175,7 @@ export class MenuItemController {
       if (data.imageUrl !== undefined) payload.imageUrl = data.imageUrl;
       if (data.isAvailable !== undefined) payload.isAvailable = data.isAvailable;
       if (data.isFeatured !== undefined) payload.isFeatured = data.isFeatured;
+      if (data.foodType !== undefined) payload.foodType = data.foodType;
 
       const menuItem = await menuItemService.updateMenuItem(id, restaurantId, payload);
       res.status(200).json({ menuItem });
