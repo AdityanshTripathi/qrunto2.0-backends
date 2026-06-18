@@ -7,7 +7,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'default_jwt_secret_12345';
 export interface DecodedUser {
   id: string;
   email: string;
-  role: UserRole;
+  role: UserRole | 'WAITER';
   restaurantId?: string;
 }
 
@@ -39,7 +39,7 @@ export const authenticate = (req: AuthenticatedRequest, res: Response, next: Nex
   }
 };
 
-export const requireRoles = (roles: UserRole[]) => {
+export const requireRoles = (roles: (UserRole | 'WAITER')[]) => {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
     if (!req.user) {
       res.status(401).json({ error: 'Authentication required' });

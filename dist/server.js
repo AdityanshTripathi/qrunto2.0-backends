@@ -19,7 +19,28 @@ const analytics_routes_1 = __importDefault(require("./routes/analytics.routes"))
 const settings_routes_1 = __importDefault(require("./routes/settings.routes"));
 const superadmin_routes_1 = __importDefault(require("./routes/superadmin.routes"));
 const notification_routes_1 = __importDefault(require("./routes/notification.routes"));
+const waiter_routes_1 = __importDefault(require("./routes/waiter.routes"));
+const http_1 = __importDefault(require("http"));
+const socket_io_1 = require("socket.io");
 const app = (0, express_1.default)();
+const server = http_1.default.createServer(app);
+const io = new socket_io_1.Server(server, {
+    cors: {
+        origin: '*',
+        methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'],
+    }
+});
+app.set('io', io);
+io.on('connection', (socket) => {
+    console.log('Socket client connected:', socket.id);
+    socket.on('join_restaurant', (restaurantId) => {
+        socket.join(restaurantId);
+        console.log(`Socket client ${socket.id} joined room ${restaurantId}`);
+    });
+    socket.on('disconnect', () => {
+        console.log('Socket client disconnected:', socket.id);
+    });
+});
 const port = process.env.PORT || 5000;
 app.use((0, cors_1.default)());
 app.use(express_1.default.json());
@@ -45,6 +66,8 @@ app.use('/api/settings', settings_routes_1.default);
 app.use('/api/superadmin', superadmin_routes_1.default);
 // Notification routes
 app.use('/api/notifications', notification_routes_1.default);
+// Waiter routes
+app.use('/api/dashboard/waiters', waiter_routes_1.default);
 // Public customer-facing routes (no auth)
 app.use('/api/public', public_routes_1.default);
 // Health check endpoint
@@ -52,7 +75,7 @@ app.get('/health', (req, res) => {
     res.status(200).json({ status: 'OK', message: 'OrderFlow API is running' });
 });
 if (!process.env.VERCEL) {
-    app.listen(port, () => {
+    server.listen(port, () => {
         console.log(`Server is running on port ${port}`);
     });
 }

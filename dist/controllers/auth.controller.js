@@ -13,6 +13,7 @@ exports.AuthController = void 0;
 const zod_1 = require("zod");
 const auth_service_1 = require("../services/auth.service");
 const user_repository_1 = require("../repositories/user.repository");
+const prisma_1 = require("../lib/prisma");
 const authService = new auth_service_1.AuthService();
 const userRepository = new user_repository_1.UserRepository();
 // Zod validation schemas
@@ -96,6 +97,38 @@ class AuthController {
             try {
                 if (!req.user) {
                     res.status(401).json({ error: 'Unauthorized' });
+                    return;
+                }
+                // Check for Waiter role
+                if (req.user.role === 'WAITER') {
+                    const waiter = yield prisma_1.prisma.waiter.findUnique({
+                        where: { id: req.user.id },
+                        include: { restaurant: true },
+                    });
+                    if (!waiter) {
+                        res.status(404).json({ error: 'Waiter not found' });
+                        return;
+                    }
+                    if (!waiter.isActive) {
+                        res.status(403).json({ error: 'Access denied: Waiter account is disabled' });
+                        return;
+                    }
+                    res.status(200).json({
+                        user: {
+                            id: waiter.id,
+                            name: waiter.name,
+                            email: waiter.email,
+                            role: 'WAITER',
+                            restaurants: [
+                                {
+                                    id: waiter.restaurant.id,
+                                    name: waiter.restaurant.name,
+                                    slug: waiter.restaurant.slug,
+                                    logoUrl: waiter.restaurant.logoUrl,
+                                },
+                            ],
+                        },
+                    });
                     return;
                 }
                 // Fetch full user details from database to return to client

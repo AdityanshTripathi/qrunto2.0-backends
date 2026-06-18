@@ -23,8 +23,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'default_jwt_secret_12345';
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'default_jwt_refresh_secret_12345';
 class AuthService {
     generateAccessToken(user) {
-        var _a;
-        const restaurantId = (_a = user.restaurants[0]) === null || _a === void 0 ? void 0 : _a.id;
+        const restaurantId = user.restaurantId || undefined;
         return jsonwebtoken_1.default.sign({
             id: user.id,
             email: user.email,
@@ -62,6 +61,7 @@ class AuthService {
     }
     register(data) {
         return __awaiter(this, void 0, void 0, function* () {
+            var _a;
             // 1. Check if user already exists
             const existingUser = yield userRepository.findByEmail(data.email);
             if (existingUser) {
@@ -80,7 +80,12 @@ class AuthService {
             }, data.restaurantName, slug);
             const userWithRestaurants = Object.assign(Object.assign({}, user), { restaurants: [restaurant] });
             // 5. Generate tokens
-            const accessToken = this.generateAccessToken(userWithRestaurants);
+            const accessToken = this.generateAccessToken({
+                id: userWithRestaurants.id,
+                email: userWithRestaurants.email,
+                role: userWithRestaurants.role,
+                restaurantId: (_a = userWithRestaurants.restaurants[0]) === null || _a === void 0 ? void 0 : _a.id,
+            });
             const refreshToken = this.generateRefreshToken(user);
             return {
                 user: {
@@ -96,26 +101,73 @@ class AuthService {
     }
     login(data) {
         return __awaiter(this, void 0, void 0, function* () {
-            // 1. Find user by email
+            var _a;
+            // 1. Find user by email in User table
             const user = yield userRepository.findByEmail(data.email);
-            if (!user) {
+            if (user) {
+                // Verify password
+                const isPasswordValid = yield bcrypt_1.default.compare(data.password, user.password);
+                if (!isPasswordValid) {
+                    throw new Error('Invalid email or password');
+                }
+                // Generate tokens
+                const accessToken = this.generateAccessToken({
+                    id: user.id,
+                    email: user.email,
+                    role: user.role,
+                    restaurantId: (_a = user.restaurants[0]) === null || _a === void 0 ? void 0 : _a.id,
+                });
+                const refreshToken = this.generateRefreshToken(user);
+                return {
+                    user: {
+                        id: user.id,
+                        name: user.name,
+                        email: user.email,
+                        role: user.role,
+                        restaurants: user.restaurants,
+                    },
+                    tokens: { accessToken, refreshToken },
+                };
+            }
+            // 2. Fall back to Waiter table
+            const waiter = yield prisma_1.prisma.waiter.findUnique({
+                where: { email: data.email },
+                include: { restaurant: true },
+            });
+            if (!waiter) {
                 throw new Error('Invalid email or password');
             }
-            // 2. Verify password
-            const isPasswordValid = yield bcrypt_1.default.compare(data.password, user.password);
+            // Block disabled waiters
+            if (!waiter.isActive) {
+                throw new Error('Access denied: Waiter account is disabled');
+            }
+            // Verify password
+            const isPasswordValid = yield bcrypt_1.default.compare(data.password, waiter.passwordHash);
             if (!isPasswordValid) {
                 throw new Error('Invalid email or password');
             }
-            // 3. Generate tokens
-            const accessToken = this.generateAccessToken(user);
-            const refreshToken = this.generateRefreshToken(user);
+            // Generate tokens
+            const accessToken = this.generateAccessToken({
+                id: waiter.id,
+                email: waiter.email,
+                role: 'WAITER',
+                restaurantId: waiter.restaurantId,
+            });
+            const refreshToken = this.generateRefreshToken(waiter);
             return {
                 user: {
-                    id: user.id,
-                    name: user.name,
-                    email: user.email,
-                    role: user.role,
-                    restaurants: user.restaurants,
+                    id: waiter.id,
+                    name: waiter.name,
+                    email: waiter.email,
+                    role: 'WAITER',
+                    restaurants: [
+                        {
+                            id: waiter.restaurant.id,
+                            name: waiter.restaurant.name,
+                            slug: waiter.restaurant.slug,
+                            logoUrl: waiter.restaurant.logoUrl,
+                        },
+                    ],
                 },
                 tokens: { accessToken, refreshToken },
             };
@@ -123,25 +175,47 @@ class AuthService {
     }
     refresh(refreshToken) {
         return __awaiter(this, void 0, void 0, function* () {
+            var _a;
             try {
                 // 1. Verify Refresh Token
                 const decoded = jsonwebtoken_1.default.verify(refreshToken, JWT_REFRESH_SECRET);
-                // 2. Find User
+                // 2. Find User in User table first
                 const user = yield userRepository.findById(decoded.id);
-                if (!user) {
-                    throw new Error('User not found');
+                if (user) {
+                    // Fetch restaurants for token payload
+                    const fullUser = yield userRepository.findByEmail(user.email);
+                    if (!fullUser) {
+                        throw new Error('User not found');
+                    }
+                    const accessToken = this.generateAccessToken({
+                        id: fullUser.id,
+                        email: fullUser.email,
+                        role: fullUser.role,
+                        restaurantId: (_a = fullUser.restaurants[0]) === null || _a === void 0 ? void 0 : _a.id,
+                    });
+                    return { accessToken };
                 }
-                // Fetch restaurants for token payload
-                const fullUser = yield userRepository.findByEmail(user.email);
-                if (!fullUser) {
-                    throw new Error('User not found');
+                // 3. Find Waiter in Waiter table
+                const waiter = yield prisma_1.prisma.waiter.findUnique({
+                    where: { id: decoded.id },
+                    include: { restaurant: true },
+                });
+                if (waiter) {
+                    if (!waiter.isActive) {
+                        throw new Error('Access denied: Waiter account is disabled');
+                    }
+                    const accessToken = this.generateAccessToken({
+                        id: waiter.id,
+                        email: waiter.email,
+                        role: 'WAITER',
+                        restaurantId: waiter.restaurantId,
+                    });
+                    return { accessToken };
                 }
-                // 3. Generate new Access Token
-                const accessToken = this.generateAccessToken(fullUser);
-                return { accessToken };
+                throw new Error('User/Waiter not found');
             }
             catch (err) {
-                throw new Error('Invalid or expired refresh token');
+                throw new Error(err.message || 'Invalid or expired refresh token');
             }
         });
     }

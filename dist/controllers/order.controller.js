@@ -116,6 +116,23 @@ class OrderController {
                     return;
                 }
                 const order = yield orderService.updateOrderStatus(id, restaurantId, validationResult.data.status);
+                const io = req.app.get('io');
+                if (io) {
+                    io.to(restaurantId).emit('ORDER_UPDATED', {
+                        orderId: order.id,
+                        orderNumber: order.orderNumber,
+                        status: order.status,
+                        tableNumber: order.table.tableNumber,
+                        totalAmount: order.totalAmount,
+                    });
+                    if (order.status === 'READY') {
+                        io.to(restaurantId).emit('ORDER_READY', {
+                            orderId: order.id,
+                            orderNumber: order.orderNumber,
+                            tableNumber: order.table.tableNumber,
+                        });
+                    }
+                }
                 res.status(200).json({ order });
             }
             catch (err) {

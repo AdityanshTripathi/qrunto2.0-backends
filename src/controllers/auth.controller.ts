@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { z } from 'zod';
 import { AuthService } from '../services/auth.service';
 import { UserRepository } from '../repositories/user.repository';
+import { prisma } from '../lib/prisma';
 
 const authService = new AuthService();
 const userRepository = new UserRepository();
@@ -85,6 +86,42 @@ export class AuthController {
     try {
       if (!req.user) {
         res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+
+      // Check for Waiter role
+      if (req.user.role === 'WAITER') {
+        const waiter = await prisma.waiter.findUnique({
+          where: { id: req.user.id },
+          include: { restaurant: true },
+        });
+
+        if (!waiter) {
+          res.status(404).json({ error: 'Waiter not found' });
+          return;
+        }
+
+        if (!waiter.isActive) {
+          res.status(403).json({ error: 'Access denied: Waiter account is disabled' });
+          return;
+        }
+
+        res.status(200).json({
+          user: {
+            id: waiter.id,
+            name: waiter.name,
+            email: waiter.email,
+            role: 'WAITER',
+            restaurants: [
+              {
+                id: waiter.restaurant.id,
+                name: waiter.restaurant.name,
+                slug: waiter.restaurant.slug,
+                logoUrl: waiter.restaurant.logoUrl,
+              },
+            ],
+          },
+        });
         return;
       }
 

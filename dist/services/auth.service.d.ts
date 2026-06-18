@@ -1,4 +1,4 @@
-import { UserRole, Restaurant } from '@prisma/client';
+import { UserRole } from '@prisma/client';
 export interface AuthTokens {
     accessToken: string;
     refreshToken: string;
@@ -7,8 +7,8 @@ export interface UserResponse {
     id: string;
     name: string;
     email: string;
-    role: UserRole;
-    restaurants: Restaurant[];
+    role: UserRole | 'WAITER';
+    restaurants: any[];
 }
 export declare class AuthService {
     private generateAccessToken;

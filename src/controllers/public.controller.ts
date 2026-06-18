@@ -16,6 +16,7 @@ const PlaceOrderSchema = z.object({
   notes: z.string().max(500).optional(),
   customerName: z.string().max(100).optional(),
   customerPhone: z.string().max(15).optional(),
+  existingOrderId: z.string().uuid('Invalid order ID').optional(),
 });
 
 const AssistanceRequestSchema = z.object({
@@ -103,7 +104,7 @@ export class PublicController {
         res.status(400).json({ errors: validationResult.error.flatten().fieldErrors });
         return;
       }
-      const { tableNumber, items, notes, customerName, customerPhone } = validationResult.data;
+      const { tableNumber, items, notes, customerName, customerPhone, existingOrderId } = validationResult.data;
 
       // 2. Fetch restaurant
       const restaurant = await prisma.restaurant.findUnique({
@@ -122,6 +123,31 @@ export class PublicController {
       if (!table) {
         res.status(404).json({ error: `Table "${tableNumber}" not found or is inactive` });
         return;
+      }
+
+      // Check for existing order
+      let existingOrder = null;
+      if (existingOrderId) {
+        existingOrder = await prisma.order.findUnique({
+          where: { id: existingOrderId },
+          include: { orderItems: true },
+        });
+        if (!existingOrder) {
+          res.status(404).json({ error: 'Active order not found' });
+          return;
+        }
+        if (existingOrder.status === 'CANCELLED') {
+          res.status(400).json({ error: 'Cannot add items to a cancelled order' });
+          return;
+        }
+        // Check if there is already a successful payment for this order
+        const successfulPayment = await prisma.payment.findFirst({
+          where: { orderId: existingOrderId, status: 'SUCCESS' },
+        });
+        if (successfulPayment) {
+          res.status(400).json({ error: 'Cannot add items to an already paid order' });
+          return;
+        }
       }
 
       // 4. Fetch and validate all menu items from DB (never trust client prices)
@@ -145,7 +171,7 @@ export class PublicController {
 
       // 5. Calculate totals
       const taxPercentage = restaurant.settings?.taxPercentage ?? 0;
-      let subtotal = 0;
+      let newSubtotal = 0;
       const orderItemsData: {
         menuItemId: string;
         itemName: string;
@@ -157,7 +183,7 @@ export class PublicController {
       for (const reqItem of items) {
         const dbItem = dbMenuItems.find((m) => m.id === reqItem.menuItemId)!;
         const itemTotal = dbItem.price * reqItem.quantity;
-        subtotal += itemTotal;
+        newSubtotal += itemTotal;
         orderItemsData.push({
           menuItemId: dbItem.id,
           itemName: dbItem.name,
@@ -167,61 +193,116 @@ export class PublicController {
         });
       }
 
-      const taxAmount = parseFloat(((subtotal * taxPercentage) / 100).toFixed(2));
-      const totalAmount = parseFloat((subtotal + taxAmount).toFixed(2));
+      const newTaxAmount = parseFloat(((newSubtotal * taxPercentage) / 100).toFixed(2));
+      const newTotalAmount = parseFloat((newSubtotal + newTaxAmount).toFixed(2));
 
-      // 6. Generate unique order number
-      let orderNumber = generateOrderNumber();
-      // Ensure uniqueness
-      let attempts = 0;
-      while (attempts < 5) {
-        const existing = await prisma.order.findFirst({
-          where: { restaurantId: restaurant.id, orderNumber },
-        });
-        if (!existing) break;
-        orderNumber = generateOrderNumber();
-        attempts++;
-      }
-
-      // 7. Create order + order items + notification in a transaction
+      // 6. Create or update order in a transaction
       const order = await prisma.$transaction(async (tx) => {
-        const newOrder = await tx.order.create({
-          data: {
-            restaurantId: restaurant.id,
-            tableId: table.id,
-            orderNumber,
-            status: 'NEW',
-            subtotal,
-            taxAmount,
-            totalAmount,
-            ...(notes ? { notes } : {}),
-            ...(customerName ? { customerName } : {}),
-            ...(customerPhone ? { customerPhone } : {}),
-            orderItems: {
-              create: orderItemsData,
+        if (existingOrder) {
+          // Append new order items
+          await tx.orderItem.createMany({
+            data: orderItemsData.map((item) => ({
+              orderId: existingOrder.id,
+              menuItemId: item.menuItemId,
+              itemName: item.itemName,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              totalPrice: item.totalPrice,
+            })),
+          });
+
+          // Update order totals
+          const updatedSubtotal = parseFloat((existingOrder.subtotal + newSubtotal).toFixed(2));
+          const updatedTaxAmount = parseFloat((existingOrder.taxAmount + newTaxAmount).toFixed(2));
+          const updatedTotalAmount = parseFloat((existingOrder.totalAmount + newTotalAmount).toFixed(2));
+
+          const updatedOrder = await tx.order.update({
+            where: { id: existingOrder.id },
+            data: {
+              subtotal: updatedSubtotal,
+              taxAmount: updatedTaxAmount,
+              totalAmount: updatedTotalAmount,
+              status: existingOrder.status === 'NEW' ? 'NEW' : 'PREPARING',
             },
-          },
-          include: {
-            orderItems: true,
-            table: true,
-          },
-        });
+            include: {
+              orderItems: true,
+              table: true,
+            },
+          });
 
-        // Create a notification for the restaurant
-        await tx.notification.create({
-          data: {
-            restaurantId: restaurant.id,
-            title: `New Order #${orderNumber}`,
-            message: `Table ${tableNumber} placed a new order for ${orderItemsData.length} items. Total: ₹${totalAmount.toLocaleString('en-IN')}`,
-            type: 'NEW_ORDER'
+          // Create notification for additional items
+          await tx.notification.create({
+            data: {
+              restaurantId: restaurant.id,
+              title: `Added Items to Order #${existingOrder.orderNumber}`,
+              message: `Table ${tableNumber} added ${orderItemsData.length} new item(s) to Order #${existingOrder.orderNumber}. New Total: ₹${updatedTotalAmount.toLocaleString('en-IN')}`,
+              type: 'NEW_ORDER',
+            },
+          });
+
+          return updatedOrder;
+        } else {
+          let orderNumber = generateOrderNumber();
+          let attempts = 0;
+          while (attempts < 5) {
+            const existing = await tx.order.findFirst({
+              where: { restaurantId: restaurant.id, orderNumber },
+            });
+            if (!existing) break;
+            orderNumber = generateOrderNumber();
+            attempts++;
           }
-        });
 
-        return newOrder;
+          const newOrder = await tx.order.create({
+            data: {
+              restaurantId: restaurant.id,
+              tableId: table.id,
+              orderNumber,
+              status: 'NEW',
+              subtotal: newSubtotal,
+              taxAmount: newTaxAmount,
+              totalAmount: newTotalAmount,
+              ...(notes ? { notes } : {}),
+              ...(customerName ? { customerName } : {}),
+              ...(customerPhone ? { customerPhone } : {}),
+              orderItems: {
+                create: orderItemsData,
+              },
+            },
+            include: {
+              orderItems: true,
+              table: true,
+            },
+          });
+
+          await tx.notification.create({
+            data: {
+              restaurantId: restaurant.id,
+              title: `New Order #${orderNumber}`,
+              message: `Table ${tableNumber} placed a new order for ${orderItemsData.length} items. Total: ₹${newTotalAmount.toLocaleString('en-IN')}`,
+              type: 'NEW_ORDER',
+            },
+          });
+
+          return newOrder;
+        }
       });
 
+      const io = req.app.get('io');
+      if (io) {
+        const eventName = existingOrderId ? 'ITEM_ADDED' : 'NEW_ORDER';
+        io.to(restaurant.id).emit(eventName, {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          tableNumber: order.table.tableNumber,
+          totalAmount: order.totalAmount,
+          itemCount: order.orderItems.length,
+          createdAt: order.createdAt,
+        });
+      }
+
       res.status(201).json({
-        message: 'Order placed successfully!',
+        message: existingOrderId ? 'Items added successfully!' : 'Order placed successfully!',
         order: {
           id: order.id,
           orderNumber: order.orderNumber,
@@ -440,6 +521,18 @@ export class PublicController {
           type: 'HELP_REQUEST',
         },
       });
+
+      const io = req.app.get('io');
+      if (io) {
+        const eventName = type === 'WAITER' ? 'CALL_WAITER' : 'REQUEST_BILL';
+        io.to(restaurant.id).emit(eventName, {
+          tableNumber,
+          type,
+          title,
+          message,
+          createdAt: new Date(),
+        });
+      }
 
       res.status(200).json({
         message: `${type === 'WAITER' ? 'Waiter call' : 'Bill request'} sent successfully!`,

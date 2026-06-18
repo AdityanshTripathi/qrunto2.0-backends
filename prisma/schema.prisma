@@ -46,6 +46,7 @@ model Restaurant {
   transactions       Transaction[]
   notifications      Notification[]
   passcodeResetRequests PasscodeResetRequest[]
+  waiters            Waiter[]
 
   @@map("restaurants")
 }
@@ -369,5 +370,21 @@ enum PasscodeResetStatus {
   APPROVED
   REJECTED
   COMPLETED
+}
+
+model Waiter {
+  id           String     @id @default(uuid())
+  restaurantId String     @map("restaurant_id")
+  name         String
+  email        String     @unique
+  phone        String
+  passwordHash String     @map("password_hash")
+  isActive     Boolean    @default(true) @map("is_active")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@index([restaurantId])
+  @@map("waiters")
 }
 

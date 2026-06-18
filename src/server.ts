@@ -14,9 +14,35 @@ import analyticsRouter from './routes/analytics.routes';
 import settingsRouter from './routes/settings.routes';
 import superadminRouter from './routes/superadmin.routes';
 import notificationRouter from './routes/notification.routes';
+import waiterRouter from './routes/waiter.routes';
+import http from 'http';
+import { Server } from 'socket.io';
 
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'],
+  }
+});
+
+app.set('io', io);
+
+io.on('connection', (socket) => {
+  console.log('Socket client connected:', socket.id);
+  
+  socket.on('join_restaurant', (restaurantId) => {
+    socket.join(restaurantId);
+    console.log(`Socket client ${socket.id} joined room ${restaurantId}`);
+  });
+
+  socket.on('disconnect', () => {
+    console.log('Socket client disconnected:', socket.id);
+  });
+});
+
 const port = process.env.PORT || 5000;
 
 app.use(cors());
@@ -55,6 +81,9 @@ app.use('/api/superadmin', superadminRouter);
 // Notification routes
 app.use('/api/notifications', notificationRouter);
 
+// Waiter routes
+app.use('/api/dashboard/waiters', waiterRouter);
+
 // Public customer-facing routes (no auth)
 app.use('/api/public', publicRouter);
 
@@ -64,7 +93,7 @@ app.get('/health', (req: Request, res: Response) => {
 });
 
 if (!process.env.VERCEL) {
-  app.listen(port, () => {
+  server.listen(port, () => {
     console.log(`Server is running on port ${port}`);
   });
 }
