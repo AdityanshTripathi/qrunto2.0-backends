@@ -144,6 +144,7 @@ model MenuItem {
   imageUrl     String?     @map("image_url")
   isAvailable  Boolean     @default(true) @map("is_available")
   isFeatured   Boolean     @default(false) @map("is_featured")
+  isCompleteYourMeal Boolean     @default(true) @map("is_complete_your_meal")
   foodType     String      @default("veg") @map("food_type")
   createdAt    DateTime    @default(now()) @map("created_at")
   updatedAt    DateTime    @updatedAt @map("updated_at")

@@ -16,20 +16,14 @@ async function updateToLocalhost() {
     let newUrl = table.qrCodeUrl;
     let needsUpdate = false;
 
-    // We want to replace any production/vercel domains with http://localhost:5173
-    // E.g., https://qrunto.vercel.app or https://frontend-ecru-beta-98.vercel.app
-    if (newUrl.includes('qrunto.vercel.app')) {
-      newUrl = newUrl.replace('https://qrunto.vercel.app', LOCAL_BASE_URL);
-      needsUpdate = true;
-    } else if (newUrl.includes('frontend-ecru-beta-98.vercel.app')) {
-      newUrl = newUrl.replace('https://frontend-ecru-beta-98.vercel.app', LOCAL_BASE_URL);
-      needsUpdate = true;
-    } else if (newUrl.startsWith('http://') && !newUrl.startsWith(LOCAL_BASE_URL)) {
-      // Just in case there's another http domain
+    // We want to replace any production or external URL hosts with http://localhost:5173
+    if (newUrl.startsWith('http://') || newUrl.startsWith('https://')) {
       try {
         const urlObj = new URL(newUrl);
-        newUrl = LOCAL_BASE_URL + urlObj.pathname + urlObj.search;
-        needsUpdate = true;
+        if (urlObj.host !== 'localhost:5173') {
+          newUrl = LOCAL_BASE_URL + urlObj.pathname + urlObj.search;
+          needsUpdate = true;
+        }
       } catch (err) {
         console.error(`Invalid URL format: ${newUrl}`);
       }

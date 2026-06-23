@@ -26,6 +26,7 @@ export class MenuItemService {
       imageUrl?: string | null;
       isAvailable?: boolean;
       isFeatured?: boolean;
+      isCompleteYourMeal?: boolean;
       foodType?: string;
     }
   ): Promise<MenuItem> {
@@ -65,6 +66,7 @@ export class MenuItemService {
       imageUrl?: string | null;
       isAvailable?: boolean;
       isFeatured?: boolean;
+      isCompleteYourMeal?: boolean;
       foodType?: string;
     }
   ): Promise<MenuItem> {

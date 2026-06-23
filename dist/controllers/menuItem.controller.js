@@ -21,6 +21,7 @@ const CreateMenuItemSchema = zod_1.z.object({
     imageUrl: zod_1.z.string().nullable().optional(),
     isAvailable: zod_1.z.boolean().optional(),
     isFeatured: zod_1.z.boolean().optional(),
+    isCompleteYourMeal: zod_1.z.boolean().optional(),
     foodType: zod_1.z.enum(['veg', 'nonveg']),
 });
 const UpdateMenuItemSchema = zod_1.z.object({
@@ -31,6 +32,7 @@ const UpdateMenuItemSchema = zod_1.z.object({
     imageUrl: zod_1.z.string().nullable().optional(),
     isAvailable: zod_1.z.boolean().optional(),
     isFeatured: zod_1.z.boolean().optional(),
+    isCompleteYourMeal: zod_1.z.boolean().optional(),
     foodType: zod_1.z.enum(['veg', 'nonveg']).optional(),
 });
 class MenuItemController {
@@ -118,6 +120,8 @@ class MenuItemController {
                     payload.isAvailable = data.isAvailable;
                 if (data.isFeatured !== undefined)
                     payload.isFeatured = data.isFeatured;
+                if (data.isCompleteYourMeal !== undefined)
+                    payload.isCompleteYourMeal = data.isCompleteYourMeal;
                 const menuItem = yield menuItemService.createMenuItem(restaurantId, payload);
                 res.status(201).json({ menuItem });
             }
@@ -165,6 +169,8 @@ class MenuItemController {
                     payload.isAvailable = data.isAvailable;
                 if (data.isFeatured !== undefined)
                     payload.isFeatured = data.isFeatured;
+                if (data.isCompleteYourMeal !== undefined)
+                    payload.isCompleteYourMeal = data.isCompleteYourMeal;
                 if (data.foodType !== undefined)
                     payload.foodType = data.foodType;
                 const menuItem = yield menuItemService.updateMenuItem(id, restaurantId, payload);
