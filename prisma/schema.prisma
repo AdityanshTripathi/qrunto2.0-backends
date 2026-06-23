@@ -55,6 +55,8 @@ model SubscriptionPlan {
   id            String         @id @default(uuid())
   name          String
   price         Float
+  price6Month   Float          @default(0) @map("price_6_month")
+  price1Year    Float          @default(0) @map("price_1_year")
   durationDays  Int            @map("duration_days")
   maxTables     Int            @map("max_tables")
   maxMenuItems  Int            @map("max_menu_items")

@@ -215,7 +215,7 @@ export class SuperAdminController {
   // ─── POST /api/superadmin/plans ───────────────────────────────────────────
   async createPlan(req: Request, res: Response): Promise<void> {
     try {
-      const { name, price, durationDays, maxTables, maxMenuItems, featuresJson } = req.body;
+      const { name, price, price6Month, price1Year, durationDays, maxTables, maxMenuItems, featuresJson } = req.body;
       if (!name || price === undefined || !durationDays) {
         res.status(400).json({ error: 'Name, price, and duration are required' });
         return;
@@ -225,6 +225,8 @@ export class SuperAdminController {
         data: {
           name,
           price: parseFloat(price),
+          price6Month: price6Month !== undefined ? parseFloat(price6Month) : 0,
+          price1Year: price1Year !== undefined ? parseFloat(price1Year) : 0,
           durationDays: parseInt(durationDays),
           maxTables: parseInt(maxTables || '10'),
           maxMenuItems: parseInt(maxMenuItems || '50'),
@@ -242,13 +244,15 @@ export class SuperAdminController {
   async updatePlan(req: Request, res: Response): Promise<void> {
     try {
       const id = req.params['id'] as string;
-      const { name, price, durationDays, maxTables, maxMenuItems, featuresJson, isActive } = req.body;
+      const { name, price, price6Month, price1Year, durationDays, maxTables, maxMenuItems, featuresJson, isActive } = req.body;
 
       const plan = await prisma.subscriptionPlan.update({
         where: { id },
         data: {
           ...(name ? { name } : {}),
           ...(price !== undefined ? { price: parseFloat(price) } : {}),
+          ...(price6Month !== undefined ? { price6Month: parseFloat(price6Month) } : {}),
+          ...(price1Year !== undefined ? { price1Year: parseFloat(price1Year) } : {}),
           ...(durationDays ? { durationDays: parseInt(durationDays) } : {}),
           ...(maxTables ? { maxTables: parseInt(maxTables) } : {}),
           ...(maxMenuItems ? { maxMenuItems: parseInt(maxMenuItems) } : {}),

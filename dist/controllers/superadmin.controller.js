@@ -222,7 +222,7 @@ class SuperAdminController {
     createPlan(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
             try {
-                const { name, price, durationDays, maxTables, maxMenuItems, featuresJson } = req.body;
+                const { name, price, price6Month, price1Year, durationDays, maxTables, maxMenuItems, featuresJson } = req.body;
                 if (!name || price === undefined || !durationDays) {
                     res.status(400).json({ error: 'Name, price, and duration are required' });
                     return;
@@ -231,6 +231,8 @@ class SuperAdminController {
                     data: {
                         name,
                         price: parseFloat(price),
+                        price6Month: price6Month !== undefined ? parseFloat(price6Month) : 0,
+                        price1Year: price1Year !== undefined ? parseFloat(price1Year) : 0,
                         durationDays: parseInt(durationDays),
                         maxTables: parseInt(maxTables || '10'),
                         maxMenuItems: parseInt(maxMenuItems || '50'),
@@ -249,10 +251,10 @@ class SuperAdminController {
         return __awaiter(this, void 0, void 0, function* () {
             try {
                 const id = req.params['id'];
-                const { name, price, durationDays, maxTables, maxMenuItems, featuresJson, isActive } = req.body;
+                const { name, price, price6Month, price1Year, durationDays, maxTables, maxMenuItems, featuresJson, isActive } = req.body;
                 const plan = yield prisma_1.prisma.subscriptionPlan.update({
                     where: { id },
-                    data: Object.assign(Object.assign(Object.assign(Object.assign(Object.assign(Object.assign(Object.assign({}, (name ? { name } : {})), (price !== undefined ? { price: parseFloat(price) } : {})), (durationDays ? { durationDays: parseInt(durationDays) } : {})), (maxTables ? { maxTables: parseInt(maxTables) } : {})), (maxMenuItems ? { maxMenuItems: parseInt(maxMenuItems) } : {})), (featuresJson !== undefined ? { featuresJson } : {})), (isActive !== undefined ? { isActive } : {})),
+                    data: Object.assign(Object.assign(Object.assign(Object.assign(Object.assign(Object.assign(Object.assign(Object.assign(Object.assign({}, (name ? { name } : {})), (price !== undefined ? { price: parseFloat(price) } : {})), (price6Month !== undefined ? { price6Month: parseFloat(price6Month) } : {})), (price1Year !== undefined ? { price1Year: parseFloat(price1Year) } : {})), (durationDays ? { durationDays: parseInt(durationDays) } : {})), (maxTables ? { maxTables: parseInt(maxTables) } : {})), (maxMenuItems ? { maxMenuItems: parseInt(maxMenuItems) } : {})), (featuresJson !== undefined ? { featuresJson } : {})), (isActive !== undefined ? { isActive } : {})),
                 });
                 res.status(200).json({ message: 'Plan updated successfully!', plan });
             }

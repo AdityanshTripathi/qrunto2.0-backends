@@ -19,6 +19,8 @@ async function main() {
     {
       name: 'Starter',
       price: 499.00,
+      price6Month: 2499.00,
+      price1Year: 4499.00,
       durationDays: 30,
       maxTables: 10,
       maxMenuItems: 50,
@@ -35,6 +37,8 @@ async function main() {
     {
       name: 'Professional',
       price: 999.00,
+      price6Month: 4999.00,
+      price1Year: 8999.00,
       durationDays: 30,
       maxTables: 30,
       maxMenuItems: 150,
@@ -51,6 +55,8 @@ async function main() {
     {
       name: 'Enterprise',
       price: 1999.00,
+      price6Month: 9999.00,
+      price1Year: 17999.00,
       durationDays: 30,
       maxTables: 9999,
       maxMenuItems: 9999,
@@ -77,6 +83,8 @@ async function main() {
         where: { id: existing.id },
         data: {
           price: plan.price,
+          price6Month: plan.price6Month,
+          price1Year: plan.price1Year,
           durationDays: plan.durationDays,
           maxTables: plan.maxTables,
           maxMenuItems: plan.maxMenuItems,

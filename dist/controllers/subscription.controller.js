@@ -207,7 +207,7 @@ class SubscriptionController {
                     res.status(400).json({ error: 'No restaurant associated with this user session' });
                     return;
                 }
-                const { planId, paymentMethod } = req.body;
+                const { planId, paymentMethod, durationMonths } = req.body;
                 if (!planId) {
                     res.status(400).json({ error: 'Plan ID is required' });
                     return;
@@ -220,17 +220,29 @@ class SubscriptionController {
                     res.status(404).json({ error: 'Active subscription plan not found' });
                     return;
                 }
+                const months = Number(durationMonths || 1);
+                let finalPrice = plan.price;
+                let calculatedDurationDays = plan.durationDays;
+                if (months === 6) {
+                    finalPrice = plan.price6Month;
+                    calculatedDurationDays = 180;
+                }
+                else if (months === 12) {
+                    finalPrice = plan.price1Year;
+                    calculatedDurationDays = 365;
+                }
                 // Generate a clean code, e.g. QR-PLAN-XXXXXX
                 const rand = Math.random().toString(36).substring(2, 8).toUpperCase();
                 const cleanPlanName = plan.name.replace(/\s+/g, '').toUpperCase().substring(0, 4);
-                const generatedCode = `QR-${cleanPlanName}-${rand}`;
+                const termLabel = months === 6 ? '6M' : months === 12 ? '1Y' : '1M';
+                const generatedCode = `QR-${cleanPlanName}-${termLabel}-${rand}`;
                 // Run database transaction
                 const promoCode = yield prisma_1.prisma.$transaction((tx) => __awaiter(this, void 0, void 0, function* () {
                     // 1. Create a successful payment entry
                     yield tx.payment.create({
                         data: {
                             restaurantId,
-                            amount: plan.price,
+                            amount: finalPrice,
                             status: 'SUCCESS',
                             paymentMethod: paymentMethod || 'ONLINE',
                             paidAt: new Date()
@@ -243,7 +255,7 @@ class SubscriptionController {
                             type: 'FREE_TRIAL',
                             value: 0,
                             planId: plan.id,
-                            durationDays: plan.durationDays,
+                            durationDays: calculatedDurationDays,
                             usageLimit: 1,
                             usageCount: 0,
                             isActive: true
