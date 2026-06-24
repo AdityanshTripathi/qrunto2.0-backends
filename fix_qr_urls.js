@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 
 async function fixQrUrls() {
   const OLD_URL = 'http://localhost:5173';
-  const NEW_URL = 'https://qrunto-frontend-ten.vercel.app';
+  const NEW_URL = 'https://ordio.in';
 
   console.log('Fetching all tables with localhost QR URLs...');
   

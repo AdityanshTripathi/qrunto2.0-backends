@@ -16,7 +16,9 @@ router.get('/dashboard-stats', (req, res) => superAdminController.getDashboardSt
 router.get('/restaurants', (req, res) => superAdminController.getRestaurants(req, res));
 router.patch('/restaurants/:id/toggle-status', (req, res) => superAdminController.toggleRestaurantStatus(req, res));
 router.post('/restaurants/:id/login-as', (req, res) => superAdminController.generateLoginAsToken(req, res));
+router.patch('/restaurants/:id/subscription', (req, res) => superAdminController.updateRestaurantSubscription(req, res));
 router.delete('/restaurants/:id', (req, res) => superAdminController.deleteRestaurant(req, res));
+
 
 // Subscription plans CRUD
 router.post('/plans', (req, res) => superAdminController.createPlan(req, res));

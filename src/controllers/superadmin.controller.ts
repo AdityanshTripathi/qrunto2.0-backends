@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import jwt from 'jsonwebtoken';
-import { UserRole, PaymentStatus, PasscodeResetStatus } from '@prisma/client';
+import { UserRole, PaymentStatus, PasscodeResetStatus, SubscriptionStatus } from '@prisma/client';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'default_jwt_secret_12345';
 
@@ -519,6 +519,70 @@ export class SuperAdminController {
       res.status(200).json({
         message: `Passcode reset request has been ${action === 'approve' ? 'approved' : 'rejected'} successfully!`,
         request: updated,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+
+  // ─── PATCH /api/superadmin/restaurants/:id/subscription ────────────────────
+  async updateRestaurantSubscription(req: Request, res: Response): Promise<void> {
+    try {
+      const id = req.params['id'] as string;
+      const { planId, status, endDate } = req.body;
+
+      const restaurant = await prisma.restaurant.findUnique({ where: { id } });
+      if (!restaurant) {
+        res.status(404).json({ error: 'Restaurant not found' });
+        return;
+      }
+
+      if (planId) {
+        const plan = await prisma.subscriptionPlan.findUnique({ where: { id: planId } });
+        if (!plan) {
+          res.status(404).json({ error: 'Subscription plan not found' });
+          return;
+        }
+      }
+
+      const latestSub = await prisma.subscription.findFirst({
+        where: { restaurantId: id },
+        orderBy: { endDate: 'desc' }
+      });
+
+      let updatedSub;
+
+      if (latestSub) {
+        updatedSub = await prisma.subscription.update({
+          where: { id: latestSub.id },
+          data: {
+            ...(planId ? { planId } : {}),
+            ...(status ? { status: status as SubscriptionStatus } : {}),
+            ...(endDate ? { endDate: new Date(endDate) } : {}),
+          },
+          include: { plan: true }
+        });
+      } else {
+        if (!planId) {
+          res.status(400).json({ error: 'No subscription found to update. You must select a plan to create a new subscription.' });
+          return;
+        }
+
+        updatedSub = await prisma.subscription.create({
+          data: {
+            restaurantId: id,
+            planId,
+            status: (status as SubscriptionStatus) || SubscriptionStatus.ACTIVE,
+            startDate: new Date(),
+            endDate: endDate ? new Date(endDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          },
+          include: { plan: true }
+        });
+      }
+
+      res.status(200).json({
+        message: 'Restaurant subscription updated successfully!',
+        subscription: updatedSub
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });

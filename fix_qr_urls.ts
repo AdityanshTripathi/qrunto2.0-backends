@@ -2,7 +2,7 @@ import { prisma } from './src/lib/prisma';
 
 async function fixQrUrls() {
   const OLD_URL = 'http://localhost:5173';
-  const NEW_URL = 'https://frontend-ecru-beta-98.vercel.app';
+  const NEW_URL = 'https://ordio.in';
 
   console.log('Fetching all tables with localhost QR URLs...');
   

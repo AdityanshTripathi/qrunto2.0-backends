@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { prisma } from './src/lib/prisma';
 
 async function updateQrUrls() {
-  const TARGET_URL = 'https://qrunto-frontend-ten.vercel.app';
+  const TARGET_URL = 'https://ordio.in';
   console.log('Fetching all tables...');
   
   const tables = await prisma.restaurantTable.findMany();
@@ -16,20 +16,16 @@ async function updateQrUrls() {
     let newUrl = table.qrCodeUrl;
     let needsUpdate = false;
 
-    // Check if URL contains old frontend Vercel domain
-    if (newUrl.includes('frontend-ecru-beta-98.vercel.app')) {
-      newUrl = newUrl.replace('https://frontend-ecru-beta-98.vercel.app', TARGET_URL);
-      needsUpdate = true;
-    }
-    // Check if URL contains localhost:5173
-    else if (newUrl.includes('localhost:5173')) {
-      newUrl = newUrl.replace('http://localhost:5173', TARGET_URL);
-      needsUpdate = true;
-    }
-    // Check if URL contains old qrunto.vercel.app
-    else if (newUrl.includes('qrunto.vercel.app')) {
-      newUrl = newUrl.replace('https://qrunto.vercel.app', TARGET_URL);
-      needsUpdate = true;
+    if (newUrl.startsWith('http://') || newUrl.startsWith('https://')) {
+      try {
+        const urlObj = new URL(newUrl);
+        if (urlObj.host !== 'ordio.in') {
+          newUrl = TARGET_URL + urlObj.pathname + urlObj.search;
+          needsUpdate = true;
+        }
+      } catch (err) {
+        console.error(`Invalid URL: ${newUrl}`);
+      }
     }
 
     if (needsUpdate) {
