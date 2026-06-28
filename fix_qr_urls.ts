@@ -1,31 +1,37 @@
+import 'dotenv/config';
 import { prisma } from './src/lib/prisma';
 
 async function fixQrUrls() {
-  const OLD_URL = 'http://localhost:5173';
-  const NEW_URL = 'https://ordio.in';
+  const TARGET_HOST = 'https://www.ordio.in';
 
-  console.log('Fetching all tables with localhost QR URLs...');
-  
-  const tables = await prisma.restaurantTable.findMany({
-    where: {
-      qrCodeUrl: {
-        startsWith: OLD_URL
-      }
-    }
-  });
+  console.log('Fetching all tables...');
+  const tables = await prisma.restaurantTable.findMany();
+  console.log(`Found ${tables.length} tables to process.`);
 
-  console.log(`Found ${tables.length} tables to update.`);
+  let updatedCount = 0;
 
   for (const table of tables) {
-    const newUrl = table.qrCodeUrl!.replace(OLD_URL, NEW_URL);
-    await prisma.restaurantTable.update({
-      where: { id: table.id },
-      data: { qrCodeUrl: newUrl }
-    });
-    console.log(`✅ Updated Table "${table.tableNumber}": ${newUrl}`);
+    if (!table.qrCodeUrl) continue;
+
+    const orderIdx = table.qrCodeUrl.indexOf('/order/');
+    if (orderIdx !== -1) {
+      const path = table.qrCodeUrl.substring(orderIdx);
+      const newUrl = `${TARGET_HOST}${path}`;
+
+      if (newUrl !== table.qrCodeUrl) {
+        await prisma.restaurantTable.update({
+          where: { id: table.id },
+          data: { qrCodeUrl: newUrl }
+        });
+        console.log(`✅ Updated Table "${table.tableNumber}":`);
+        console.log(`   Old: ${table.qrCodeUrl}`);
+        console.log(`   New: ${newUrl}`);
+        updatedCount++;
+      }
+    }
   }
 
-  console.log('\n✅ All done! QR URLs updated successfully.');
+  console.log(`\n✅ All done! Updated ${updatedCount} QR URLs successfully.`);
   await prisma.$disconnect();
 }
 

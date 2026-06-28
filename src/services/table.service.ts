@@ -7,7 +7,7 @@ const tableRepository = new TableRepository();
 const subscriptionRepository = new SubscriptionRepository();
 
 // Base URL for QR codes - used as the value encoded in the QR
-const APP_BASE_URL = process.env.APP_BASE_URL || 'https://ordio.in';
+const APP_BASE_URL = process.env.APP_BASE_URL || 'https://www.ordio.in';
 
 
 export class TableService {
