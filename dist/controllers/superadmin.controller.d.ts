@@ -14,5 +14,6 @@ export declare class SuperAdminController {
     deleteLicenseCode(req: Request, res: Response): Promise<void>;
     getPasscodeResets(req: Request, res: Response): Promise<void>;
     handlePasscodeReset(req: Request, res: Response): Promise<void>;
+    updateRestaurantSubscription(req: Request, res: Response): Promise<void>;
 }
 //# sourceMappingURL=superadmin.controller.d.ts.map

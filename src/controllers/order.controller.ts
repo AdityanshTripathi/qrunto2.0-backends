@@ -110,4 +110,62 @@ export class OrderController {
       res.status(400).json({ error: err.message });
     }
   }
+
+  async applyLoyaltyDiscount(req: Request, res: Response): Promise<void> {
+    try {
+      if (!req.user) { res.status(401).json({ error: 'Authentication required' }); return; }
+      const restaurantId = req.user.restaurantId;
+      if (!restaurantId) { res.status(400).json({ error: 'No restaurant linked to this session' }); return; }
+
+      const id = req.params['id'] as string;
+      const { pointsToRedeem } = req.body;
+
+      if (typeof pointsToRedeem !== 'number' || pointsToRedeem <= 0) {
+        res.status(400).json({ error: 'Invalid pointsToRedeem value' });
+        return;
+      }
+
+      const order = await orderService.applyLoyaltyDiscount(
+        id,
+        restaurantId,
+        pointsToRedeem
+      );
+
+      res.status(200).json({ order });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  }
+
+  async payOrder(req: Request, res: Response): Promise<void> {
+    try {
+      if (!req.user) { res.status(401).json({ error: 'Authentication required' }); return; }
+      const restaurantId = req.user.restaurantId;
+      if (!restaurantId) { res.status(400).json({ error: 'No restaurant linked to this session' }); return; }
+
+      const id = req.params['id'] as string;
+      const { paymentMethod } = req.body;
+
+      const order = await orderService.payOrder(
+        id,
+        restaurantId,
+        paymentMethod
+      );
+
+      const io = req.app.get('io');
+      if (io) {
+        io.to(restaurantId).emit('ORDER_UPDATED', {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          status: order.status,
+          tableNumber: order.table.tableNumber,
+          totalAmount: order.totalAmount,
+        });
+      }
+
+      res.status(200).json({ order });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  }
 }

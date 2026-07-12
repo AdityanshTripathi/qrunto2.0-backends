@@ -5,5 +5,7 @@ export declare class PublicController {
     getOrderStatus(req: Request, res: Response): Promise<void>;
     markOrderPaidMock(req: Request, res: Response): Promise<void>;
     requestAssistance(req: Request, res: Response): Promise<void>;
+    getLoyaltyBalance(req: Request, res: Response): Promise<void>;
+    claimReferral(req: Request, res: Response): Promise<void>;
 }
 //# sourceMappingURL=public.controller.d.ts.map

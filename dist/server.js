@@ -20,6 +20,15 @@ const settings_routes_1 = __importDefault(require("./routes/settings.routes"));
 const superadmin_routes_1 = __importDefault(require("./routes/superadmin.routes"));
 const notification_routes_1 = __importDefault(require("./routes/notification.routes"));
 const waiter_routes_1 = __importDefault(require("./routes/waiter.routes"));
+const inventory_routes_1 = __importDefault(require("./routes/inventory.routes"));
+const customer_routes_1 = __importDefault(require("./routes/crm/customer.routes"));
+const loyalty_routes_1 = __importDefault(require("./routes/crm/loyalty.routes"));
+const coupon_routes_1 = __importDefault(require("./routes/crm/coupon.routes"));
+const segment_routes_1 = __importDefault(require("./routes/crm/segment.routes"));
+const campaign_routes_1 = __importDefault(require("./routes/crm/campaign.routes"));
+const feedback_routes_1 = __importDefault(require("./routes/crm/feedback.routes"));
+const ai_gateway_routes_1 = __importDefault(require("./routes/crm/ai-gateway.routes"));
+const scheduler_service_1 = require("./services/crm/scheduler.service");
 const http_1 = __importDefault(require("http"));
 const socket_io_1 = require("socket.io");
 const app = (0, express_1.default)();
@@ -68,6 +77,16 @@ app.use('/api/superadmin', superadmin_routes_1.default);
 app.use('/api/notifications', notification_routes_1.default);
 // Waiter routes
 app.use('/api/dashboard/waiters', waiter_routes_1.default);
+// Inventory routes
+app.use('/api/inventory', inventory_routes_1.default);
+// Customer CRM routes
+app.use('/api/crm/customers', customer_routes_1.default);
+app.use('/api/crm/loyalty', loyalty_routes_1.default);
+app.use('/api/crm/coupons', coupon_routes_1.default);
+app.use('/api/crm/segments', segment_routes_1.default);
+app.use('/api/crm/campaigns', campaign_routes_1.default);
+app.use('/api/crm/feedback', feedback_routes_1.default);
+app.use('/api/crm/ai', ai_gateway_routes_1.default);
 // Public customer-facing routes (no auth)
 app.use('/api/public', public_routes_1.default);
 // Health check endpoint
@@ -77,6 +96,7 @@ app.get('/health', (req, res) => {
 if (!process.env.VERCEL) {
     server.listen(port, () => {
         console.log(`Server is running on port ${port}`);
+        scheduler_service_1.CRMScheduler.start();
     });
 }
 exports.default = app;

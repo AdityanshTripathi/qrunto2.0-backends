@@ -6,7 +6,9 @@ const publicController = new PublicController();
 
 // No authentication required for these routes — they are customer-facing
 router.get('/:slug', (req, res) => publicController.getRestaurantMenu(req, res));
+router.get('/:slug/loyalty/balance', (req, res) => publicController.getLoyaltyBalance(req, res));
 router.post('/:slug/orders', (req, res) => publicController.placeOrder(req, res));
+router.post('/:slug/referral/claim', (req, res) => publicController.claimReferral(req, res));
 router.get('/:slug/orders/:orderId/status', (req, res) => publicController.getOrderStatus(req, res));
 router.post('/:slug/orders/:orderId/pay-mock', (req, res) => publicController.markOrderPaidMock(req, res));
 router.post('/:slug/tables/:tableNumber/assistance', (req, res) => publicController.requestAssistance(req, res));

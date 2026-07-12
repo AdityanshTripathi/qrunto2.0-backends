@@ -1,0 +1,1 @@
+{"version":3,"file":"audit.controller.d.ts","sourceRoot":"","sources":["../../../src/controllers/inventory/audit.controller.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,OAAO,EAAE,QAAQ,EAAE,MAAM,SAAS,CAAC;AAiB5C,qBAAa,eAAe;IACpB,SAAS,CAAC,GAAG,EAAE,OAAO,EAAE,GAAG,EAAE,QAAQ,GAAG,OAAO,CAAC,IAAI,CAAC;IAoBrD,WAAW,CAAC,GAAG,EAAE,OAAO,EAAE,GAAG,EAAE,QAAQ,GAAG,OAAO,CAAC,IAAI,CAAC;CA4C9D"}

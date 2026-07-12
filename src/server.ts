@@ -15,6 +15,15 @@ import settingsRouter from './routes/settings.routes';
 import superadminRouter from './routes/superadmin.routes';
 import notificationRouter from './routes/notification.routes';
 import waiterRouter from './routes/waiter.routes';
+import inventoryRouter from './routes/inventory.routes';
+import customerRouter from './routes/crm/customer.routes';
+import loyaltyRouter from './routes/crm/loyalty.routes';
+import couponRouter from './routes/crm/coupon.routes';
+import segmentRouter from './routes/crm/segment.routes';
+import campaignRouter from './routes/crm/campaign.routes';
+import feedbackRouter from './routes/crm/feedback.routes';
+import aiGatewayRouter from './routes/crm/ai-gateway.routes';
+import { CRMScheduler } from './services/crm/scheduler.service';
 import http from 'http';
 import { Server } from 'socket.io';
 
@@ -84,6 +93,18 @@ app.use('/api/notifications', notificationRouter);
 // Waiter routes
 app.use('/api/dashboard/waiters', waiterRouter);
 
+// Inventory routes
+app.use('/api/inventory', inventoryRouter);
+
+// Customer CRM routes
+app.use('/api/crm/customers', customerRouter);
+app.use('/api/crm/loyalty', loyaltyRouter);
+app.use('/api/crm/coupons', couponRouter);
+app.use('/api/crm/segments', segmentRouter);
+app.use('/api/crm/campaigns', campaignRouter);
+app.use('/api/crm/feedback', feedbackRouter);
+app.use('/api/crm/ai', aiGatewayRouter);
+
 // Public customer-facing routes (no auth)
 app.use('/api/public', publicRouter);
 
@@ -95,6 +116,7 @@ app.get('/health', (req: Request, res: Response) => {
 if (!process.env.VERCEL) {
   server.listen(port, () => {
     console.log(`Server is running on port ${port}`);
+    CRMScheduler.start();
   });
 }
 

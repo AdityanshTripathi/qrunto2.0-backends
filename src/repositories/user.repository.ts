@@ -18,7 +18,7 @@ export class UserRepository {
   }
 
   async createUserWithRestaurant(
-    userData: Omit<User, 'id' | 'createdAt' | 'updatedAt'>,
+    userData: Omit<User, 'id' | 'createdAt' | 'updatedAt' | 'phone' | 'restaurantId' | 'isActive'>,
     restaurantName: string,
     restaurantSlug: string
   ): Promise<{ user: User; restaurant: Restaurant }> {

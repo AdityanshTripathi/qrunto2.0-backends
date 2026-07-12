@@ -115,7 +115,7 @@ class AuthService {
                     id: user.id,
                     email: user.email,
                     role: user.role,
-                    restaurantId: (_a = user.restaurants[0]) === null || _a === void 0 ? void 0 : _a.id,
+                    restaurantId: user.restaurantId || ((_a = user.restaurants[0]) === null || _a === void 0 ? void 0 : _a.id),
                 });
                 const refreshToken = this.generateRefreshToken(user);
                 return {
@@ -191,7 +191,7 @@ class AuthService {
                         id: fullUser.id,
                         email: fullUser.email,
                         role: fullUser.role,
-                        restaurantId: (_a = fullUser.restaurants[0]) === null || _a === void 0 ? void 0 : _a.id,
+                        restaurantId: fullUser.restaurantId || ((_a = fullUser.restaurants[0]) === null || _a === void 0 ? void 0 : _a.id),
                     });
                     return { accessToken };
                 }

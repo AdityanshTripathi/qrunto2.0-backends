@@ -518,6 +518,62 @@ class SuperAdminController {
             }
         });
     }
+    // ─── PATCH /api/superadmin/restaurants/:id/subscription ────────────────────
+    updateRestaurantSubscription(req, res) {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                const id = req.params['id'];
+                const { planId, status, endDate } = req.body;
+                const restaurant = yield prisma_1.prisma.restaurant.findUnique({ where: { id } });
+                if (!restaurant) {
+                    res.status(404).json({ error: 'Restaurant not found' });
+                    return;
+                }
+                if (planId) {
+                    const plan = yield prisma_1.prisma.subscriptionPlan.findUnique({ where: { id: planId } });
+                    if (!plan) {
+                        res.status(404).json({ error: 'Subscription plan not found' });
+                        return;
+                    }
+                }
+                const latestSub = yield prisma_1.prisma.subscription.findFirst({
+                    where: { restaurantId: id },
+                    orderBy: { endDate: 'desc' }
+                });
+                let updatedSub;
+                if (latestSub) {
+                    updatedSub = yield prisma_1.prisma.subscription.update({
+                        where: { id: latestSub.id },
+                        data: Object.assign(Object.assign(Object.assign({}, (planId ? { planId } : {})), (status ? { status: status } : {})), (endDate ? { endDate: new Date(endDate) } : {})),
+                        include: { plan: true }
+                    });
+                }
+                else {
+                    if (!planId) {
+                        res.status(400).json({ error: 'No subscription found to update. You must select a plan to create a new subscription.' });
+                        return;
+                    }
+                    updatedSub = yield prisma_1.prisma.subscription.create({
+                        data: {
+                            restaurantId: id,
+                            planId,
+                            status: status || client_1.SubscriptionStatus.ACTIVE,
+                            startDate: new Date(),
+                            endDate: endDate ? new Date(endDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+                        },
+                        include: { plan: true }
+                    });
+                }
+                res.status(200).json({
+                    message: 'Restaurant subscription updated successfully!',
+                    subscription: updatedSub
+                });
+            }
+            catch (err) {
+                res.status(500).json({ error: err.message });
+            }
+        });
+    }
 }
 exports.SuperAdminController = SuperAdminController;
 //# sourceMappingURL=superadmin.controller.js.map

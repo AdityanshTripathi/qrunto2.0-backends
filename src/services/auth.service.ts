@@ -145,7 +145,7 @@ export class AuthService {
         id: user.id,
         email: user.email,
         role: user.role,
-        restaurantId: user.restaurants[0]?.id,
+        restaurantId: user.restaurantId || user.restaurants[0]?.id,
       });
       const refreshToken = this.generateRefreshToken(user);
 
@@ -227,7 +227,7 @@ export class AuthService {
           id: fullUser.id,
           email: fullUser.email,
           role: fullUser.role,
-          restaurantId: fullUser.restaurants[0]?.id,
+          restaurantId: fullUser.restaurantId || fullUser.restaurants[0]?.id,
         });
         return { accessToken };
       }

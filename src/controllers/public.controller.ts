@@ -1,6 +1,12 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
+import { ProfilerService } from '../services/crm/profiler.service';
+import { LoyaltyService } from '../services/crm/loyalty.service';
+import { CouponService } from '../services/crm/coupon.service';
+import { ReferralService } from '../services/crm/referral.service';
+
+const referralService = new ReferralService();
 
 // ─── Zod Schema ───────────────────────────────────────────────────────────────
 const PlaceOrderSchema = z.object({
@@ -17,6 +23,8 @@ const PlaceOrderSchema = z.object({
   customerName: z.string().max(100).optional(),
   customerPhone: z.string().max(15).optional(),
   existingOrderId: z.string().uuid('Invalid order ID').optional(),
+  redeemPoints: z.number().int().nonnegative().optional(),
+  couponCode: z.string().optional(),
 });
 
 const AssistanceRequestSchema = z.object({
@@ -104,7 +112,7 @@ export class PublicController {
         res.status(400).json({ errors: validationResult.error.flatten().fieldErrors });
         return;
       }
-      const { tableNumber, items, notes, customerName, customerPhone, existingOrderId } = validationResult.data;
+      const { tableNumber, items, notes, customerName, customerPhone, existingOrderId, redeemPoints, couponCode } = validationResult.data;
 
       // 2. Fetch restaurant
       const restaurant = await prisma.restaurant.findUnique({
@@ -196,6 +204,21 @@ export class PublicController {
       const newTaxAmount = parseFloat(((newSubtotal * taxPercentage) / 100).toFixed(2));
       const newTotalAmount = parseFloat((newSubtotal + newTaxAmount).toFixed(2));
 
+      // Link customer profile if phone is provided
+      let customerId: string | undefined = undefined;
+      if (customerPhone && customerPhone.trim() !== '') {
+        const profilerService = new ProfilerService();
+        try {
+          customerId = await profilerService.linkOrCreateCustomer(
+            restaurant.id,
+            customerPhone,
+            customerName || 'Anonymous Customer'
+          );
+        } catch (crmErr) {
+          console.error('Failed to link customer in CRM:', crmErr);
+        }
+      }
+
       // 6. Create or update order in a transaction
       const order = await prisma.$transaction(async (tx) => {
         if (existingOrder) {
@@ -223,6 +246,9 @@ export class PublicController {
               taxAmount: updatedTaxAmount,
               totalAmount: updatedTotalAmount,
               status: existingOrder.status === 'NEW' ? 'NEW' : 'PREPARING',
+              ...(!(existingOrder as any).customerId && customerId ? { customerId } : {}),
+              ...(!existingOrder.customerName && customerName ? { customerName } : {}),
+              ...(!existingOrder.customerPhone && customerPhone ? { customerPhone } : {}),
             },
             include: {
               orderItems: true,
@@ -253,6 +279,37 @@ export class PublicController {
             attempts++;
           }
 
+          // Points redemption discount calculation (1 point = ₹1)
+          let pointsDiscount = 0;
+          if (redeemPoints && redeemPoints > 0 && customerId) {
+            const account = await tx.loyaltyAccount.findUnique({
+              where: { customerId }
+            });
+            if (!account || account.pointsBalance < redeemPoints) {
+              throw new Error(`Insufficient points balance. Available: ${account?.pointsBalance || 0}, Requested: ${redeemPoints}`);
+            }
+            pointsDiscount = Math.min(newTotalAmount, redeemPoints);
+          }
+
+          let remainingAmount = Math.max(0, newTotalAmount - pointsDiscount);
+
+          let couponDiscount = 0;
+          if (couponCode && couponCode.trim() !== '' && customerId) {
+            const couponService = new CouponService();
+            const validation = await couponService.validateAndRedeem(customerId, couponCode, remainingAmount, 'TEMP_ORDER_ID', tx);
+            couponDiscount = validation.discountAmount;
+          }
+
+          const finalTotalAmount = parseFloat((remainingAmount - couponDiscount).toFixed(2));
+          
+          let orderNotes = notes || '';
+          if (pointsDiscount > 0) {
+            orderNotes = `${orderNotes} [Redeemed ${redeemPoints} points, ₹${pointsDiscount} discount]`.trim();
+          }
+          if (couponDiscount > 0) {
+            orderNotes = `${orderNotes} [Coupon ${couponCode}: ₹${couponDiscount} discount]`.trim();
+          }
+
           const newOrder = await tx.order.create({
             data: {
               restaurantId: restaurant.id,
@@ -261,10 +318,11 @@ export class PublicController {
               status: 'NEW',
               subtotal: newSubtotal,
               taxAmount: newTaxAmount,
-              totalAmount: newTotalAmount,
-              ...(notes ? { notes } : {}),
+              totalAmount: finalTotalAmount,
+              ...(orderNotes ? { notes: orderNotes } : {}),
               ...(customerName ? { customerName } : {}),
               ...(customerPhone ? { customerPhone } : {}),
+              ...(customerId ? { customerId } : {}),
               orderItems: {
                 create: orderItemsData,
               },
@@ -275,11 +333,30 @@ export class PublicController {
             },
           });
 
+          // Process the points redemption in ledger
+          if (pointsDiscount > 0 && customerId) {
+            const loyaltyService = new LoyaltyService();
+            await loyaltyService.redeemPoints(customerId, redeemPoints!, newOrder.id, tx);
+          }
+
+          // Link the coupon redemption to the created order id
+          if (couponDiscount > 0 && couponCode && customerId) {
+            const couponTemplate = await tx.coupon.findFirst({
+              where: { code: { equals: couponCode, mode: 'insensitive' } }
+            });
+            if (couponTemplate) {
+              await tx.customerCoupon.updateMany({
+                where: { customerId, couponId: couponTemplate.id, orderId: 'TEMP_ORDER_ID' },
+                data: { orderId: newOrder.id }
+              });
+            }
+          }
+
           await tx.notification.create({
             data: {
               restaurantId: restaurant.id,
               title: `New Order #${orderNumber}`,
-              message: `Table ${tableNumber} placed a new order for ${orderItemsData.length} items. Total: ₹${newTotalAmount.toLocaleString('en-IN')}`,
+              message: `Table ${tableNumber} placed a new order for ${orderItemsData.length} items. Total: ₹${finalTotalAmount.toLocaleString('en-IN')}`,
               type: 'NEW_ORDER',
             },
           });
@@ -452,6 +529,18 @@ export class PublicController {
           },
         });
 
+        // Update Order status to PAID
+        await tx.order.update({
+          where: { id: order.id },
+          data: { status: 'PAID' },
+        });
+
+        // Earn loyalty points
+        if (order.customerId && restaurant.brandId) {
+          const loyaltyService = new LoyaltyService();
+          await loyaltyService.earnPoints(order.customerId, restaurant.brandId, order.totalAmount, order.id, tx);
+        }
+
         return newPayment;
       });
 
@@ -518,7 +607,7 @@ export class PublicController {
           restaurantId: restaurant.id,
           title,
           message,
-          type: 'HELP_REQUEST',
+          type: isWaiter ? 'HELP_REQUEST' : 'BILLING',
         },
       });
 
@@ -539,6 +628,82 @@ export class PublicController {
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  }
+
+  // Fetch loyalty points balance for a phone number (public)
+  async getLoyaltyBalance(req: Request, res: Response): Promise<void> {
+    try {
+      const slug = req.params['slug'] as string;
+      const phone = req.query['phone'] as string;
+
+      if (!slug || !phone || phone.trim() === '') {
+        res.status(200).json({ pointsBalance: 0, tierName: null });
+        return;
+      }
+
+      // Find restaurant & brand
+      const restaurant = await prisma.restaurant.findUnique({
+        where: { slug },
+        select: { id: true, brandId: true }
+      });
+
+      if (!restaurant || !restaurant.brandId) {
+        res.status(404).json({ error: 'Restaurant or brand context not found' });
+        return;
+      }
+
+      // Find customer
+      const customer = await prisma.customer.findFirst({
+        where: { phone, brandId: restaurant.brandId },
+        include: {
+          loyaltyAccount: true,
+          profiles: {
+            where: { restaurantId: restaurant.id },
+            include: { loyaltyTier: true }
+          }
+        }
+      });
+
+      if (!customer) {
+        res.status(200).json({ pointsBalance: 0, tierName: null });
+        return;
+      }
+
+      const pointsBalance = customer.loyaltyAccount?.pointsBalance || 0;
+      const tierName = customer.profiles?.[0]?.loyaltyTier?.name || null;
+
+      res.status(200).json({ pointsBalance, tierName });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+
+  // Claim referral invite code (public guest action)
+  async claimReferral(req: Request, res: Response): Promise<void> {
+    try {
+      const slug = req.params['slug'] as string;
+      const { phone, referralCode } = req.body;
+
+      if (!slug || !phone || !referralCode) {
+        res.status(400).json({ error: 'Missing required parameters' });
+        return;
+      }
+
+      const restaurant = await prisma.restaurant.findUnique({
+        where: { slug },
+        select: { id: true, brandId: true }
+      });
+
+      if (!restaurant || !restaurant.brandId) {
+        res.status(404).json({ error: 'Restaurant or brand context not found' });
+        return;
+      }
+
+      const result = await referralService.claimReferral(restaurant.brandId, phone, referralCode);
+      res.status(200).json(result);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
     }
   }
 }

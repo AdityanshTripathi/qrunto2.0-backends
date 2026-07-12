@@ -4,7 +4,7 @@ export declare class UserRepository {
         restaurants: Restaurant[];
     }) | null>;
     findById(id: string): Promise<User | null>;
-    createUserWithRestaurant(userData: Omit<User, 'id' | 'createdAt' | 'updatedAt'>, restaurantName: string, restaurantSlug: string): Promise<{
+    createUserWithRestaurant(userData: Omit<User, 'id' | 'createdAt' | 'updatedAt' | 'phone' | 'restaurantId' | 'isActive'>, restaurantName: string, restaurantSlug: string): Promise<{
         user: User;
         restaurant: Restaurant;
     }>;

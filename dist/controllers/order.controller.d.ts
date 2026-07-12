@@ -4,5 +4,7 @@ export declare class OrderController {
     getOrderStats(req: Request, res: Response): Promise<void>;
     getOrderById(req: Request, res: Response): Promise<void>;
     updateOrderStatus(req: Request, res: Response): Promise<void>;
+    applyLoyaltyDiscount(req: Request, res: Response): Promise<void>;
+    payOrder(req: Request, res: Response): Promise<void>;
 }
 //# sourceMappingURL=order.controller.d.ts.map
