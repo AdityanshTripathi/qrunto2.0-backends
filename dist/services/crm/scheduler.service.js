@@ -29,22 +29,22 @@ class CRMScheduler {
         }
         console.log('[CRM Scheduler] Initializing background CRM segment evaluator...');
         // Run evaluations once on startup
-        this.runEvaluations();
-        campaignService.processQueuedCampaigns();
-        occasionService.checkAndSendOccasionMessages();
+        this.runEvaluations().catch(err => console.error('[CRM Scheduler] Startup evaluations failed:', err));
+        campaignService.processQueuedCampaigns().catch(err => console.error('[CRM Scheduler] Startup campaigns failed:', err));
+        occasionService.checkAndSendOccasionMessages().catch(err => console.error('[CRM Scheduler] Startup occasions failed:', err));
         // Run every 4 hours (4 * 60 * 60 * 1000 ms)
         const intervalMs = 4 * 60 * 60 * 1000;
         schedulerInterval = setInterval(() => {
-            this.runEvaluations();
+            this.runEvaluations().catch(err => console.error('[CRM Scheduler] Interval evaluations failed:', err));
         }, intervalMs);
         // Run campaign scanner every 1 minute (60 * 1000 ms)
         campaignInterval = setInterval(() => {
-            campaignService.processQueuedCampaigns();
+            campaignService.processQueuedCampaigns().catch(err => console.error('[CRM Scheduler] Interval campaigns failed:', err));
         }, 60 * 1000);
         // Run occasion checker every 24 hours (24 * 60 * 60 * 1000 ms)
         const occasionIntervalMs = 24 * 60 * 60 * 1000;
         occasionInterval = setInterval(() => {
-            occasionService.checkAndSendOccasionMessages();
+            occasionService.checkAndSendOccasionMessages().catch(err => console.error('[CRM Scheduler] Interval occasions failed:', err));
         }, occasionIntervalMs);
     }
     // Stop background jobs (for clean shutdowns)

@@ -115,7 +115,7 @@ class AnalyticsController {
                     take: 5,
                 });
                 // Fetch table numbers for the IDs
-                const tableIds = tableOrdersGrouped.map((t) => t.tableId);
+                const tableIds = tableOrdersGrouped.map((t) => t.tableId).filter((id) => id !== null);
                 const tables = yield prisma_1.prisma.restaurantTable.findMany({
                     where: { id: { in: tableIds } },
                     select: { id: true, tableNumber: true },

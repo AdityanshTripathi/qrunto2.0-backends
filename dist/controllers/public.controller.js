@@ -102,7 +102,7 @@ class PublicController {
     // Places an order for a table. Prices are fetched from DB — never trusted from client.
     placeOrder(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
-            var _a, _b;
+            var _a, _b, _c, _d;
             try {
                 const slug = req.params['slug'];
                 if (!slug) {
@@ -321,7 +321,7 @@ class PublicController {
                     io.to(restaurant.id).emit(eventName, {
                         orderId: order.id,
                         orderNumber: order.orderNumber,
-                        tableNumber: order.table.tableNumber,
+                        tableNumber: (_c = order.table) === null || _c === void 0 ? void 0 : _c.tableNumber,
                         totalAmount: order.totalAmount,
                         itemCount: order.orderItems.length,
                         createdAt: order.createdAt,
@@ -336,7 +336,7 @@ class PublicController {
                         subtotal: order.subtotal,
                         taxAmount: order.taxAmount,
                         totalAmount: order.totalAmount,
-                        tableNumber: order.table.tableNumber,
+                        tableNumber: (_d = order.table) === null || _d === void 0 ? void 0 : _d.tableNumber,
                         itemCount: order.orderItems.length,
                         createdAt: order.createdAt,
                         customerName: order.customerName,

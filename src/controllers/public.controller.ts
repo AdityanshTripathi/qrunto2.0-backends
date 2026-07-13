@@ -371,7 +371,7 @@ export class PublicController {
         io.to(restaurant.id).emit(eventName, {
           orderId: order.id,
           orderNumber: order.orderNumber,
-          tableNumber: order.table.tableNumber,
+          tableNumber: order.table?.tableNumber,
           totalAmount: order.totalAmount,
           itemCount: order.orderItems.length,
           createdAt: order.createdAt,
@@ -387,7 +387,7 @@ export class PublicController {
           subtotal: order.subtotal,
           taxAmount: order.taxAmount,
           totalAmount: order.totalAmount,
-          tableNumber: order.table.tableNumber,
+          tableNumber: order.table?.tableNumber,
           itemCount: order.orderItems.length,
           createdAt: order.createdAt,
           customerName: order.customerName,
