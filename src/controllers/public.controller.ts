@@ -64,6 +64,19 @@ export class PublicController {
         return;
       }
 
+      // Log public catalog view
+      const sessionId = (req.query['sessionId'] as string) || `sess_${Math.random().toString(36).substring(2, 15)}`;
+      try {
+        await prisma.menuViewLog.create({
+          data: {
+            restaurantId: restaurant.id,
+            sessionId,
+          },
+        });
+      } catch (logErr) {
+        console.error('Failed to log menu view:', logErr);
+      }
+
       // 2. Fetch active categories ordered by displayOrder
       const categories = await prisma.category.findMany({
         where: { restaurantId: restaurant.id, isActive: true },
@@ -704,6 +717,55 @@ export class PublicController {
       res.status(200).json(result);
     } catch (err: any) {
       res.status(400).json({ error: err.message });
+    }
+  }
+
+  async pingCart(req: Request, res: Response): Promise<void> {
+    try {
+      const slug = req.params['slug'] as string;
+      const { sessionId, isAbandoned } = req.body;
+
+      if (!slug || !sessionId) {
+        res.status(400).json({ error: 'Restaurant slug and session ID are required' });
+        return;
+      }
+
+      const restaurant = await prisma.restaurant.findUnique({
+        where: { slug },
+      });
+
+      if (!restaurant) {
+        res.status(404).json({ error: 'Restaurant not found' });
+        return;
+      }
+
+      const existingSession = await prisma.cartSession.findFirst({
+        where: { restaurantId: restaurant.id, sessionId },
+      });
+
+      if (existingSession) {
+        await prisma.cartSession.update({
+          where: { id: existingSession.id },
+          data: {
+            isActive: !isAbandoned,
+            isAbandoned: isAbandoned || false,
+            updatedAt: new Date(),
+          },
+        });
+      } else {
+        await prisma.cartSession.create({
+          data: {
+            restaurantId: restaurant.id,
+            sessionId,
+            isActive: !isAbandoned,
+            isAbandoned: isAbandoned || false,
+          },
+        });
+      }
+
+      res.status(200).json({ message: 'Cart session ping received' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   }
 }

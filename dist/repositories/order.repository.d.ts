@@ -1,7 +1,8 @@
-import { Order, OrderStatus, OrderItem, RestaurantTable } from '@prisma/client';
+import { Order, OrderStatus, OrderItem, RestaurantTable, Payment } from '@prisma/client';
 export type OrderWithDetails = Order & {
     table: RestaurantTable;
     orderItems: OrderItem[];
+    payments: Payment[];
 };
 export declare class OrderRepository {
     findMany(restaurantId: string, filters?: {

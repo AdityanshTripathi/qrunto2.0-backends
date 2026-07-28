@@ -1,9 +1,10 @@
 import { prisma } from '../lib/prisma';
-import { Order, OrderStatus, OrderItem, RestaurantTable } from '@prisma/client';
+import { Order, OrderStatus, OrderItem, RestaurantTable, Payment } from '@prisma/client';
 
 export type OrderWithDetails = Order & {
   table: RestaurantTable;
   orderItems: OrderItem[];
+  payments: Payment[];
 };
 
 export class OrderRepository {
@@ -27,7 +28,7 @@ export class OrderRepository {
 
     return prisma.order.findMany({
       where,
-      include: { table: true, orderItems: true },
+      include: { table: true, orderItems: true, payments: true },
       orderBy: { createdAt: 'desc' },
     }) as Promise<OrderWithDetails[]>;
   }
@@ -35,7 +36,7 @@ export class OrderRepository {
   async findById(id: string, restaurantId: string): Promise<OrderWithDetails | null> {
     return prisma.order.findFirst({
       where: { id, restaurantId },
-      include: { table: true, orderItems: true },
+      include: { table: true, orderItems: true, payments: true },
     }) as Promise<OrderWithDetails | null>;
   }
 

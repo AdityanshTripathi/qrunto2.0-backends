@@ -27,7 +27,7 @@ class OrderRepository {
             }
             return prisma_1.prisma.order.findMany({
                 where,
-                include: { table: true, orderItems: true },
+                include: { table: true, orderItems: true, payments: true },
                 orderBy: { createdAt: 'desc' },
             });
         });
@@ -36,7 +36,7 @@ class OrderRepository {
         return __awaiter(this, void 0, void 0, function* () {
             return prisma_1.prisma.order.findFirst({
                 where: { id, restaurantId },
-                include: { table: true, orderItems: true },
+                include: { table: true, orderItems: true, payments: true },
             });
         });
     }

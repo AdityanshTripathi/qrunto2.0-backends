@@ -37,5 +37,21 @@ router.get('/transactions', (req, res) => superAdminController.getTransactions(r
 router.get('/passcode-resets', (req, res) => superAdminController.getPasscodeResets(req, res));
 router.patch('/passcode-resets/:id/action', (req, res) => superAdminController.handlePasscodeReset(req, res));
 
+// WhatsApp Manager routes
+router.post('/whatsapp/send-message', async (req, res) => {
+  try {
+    const { WhatsAppService } = await import('../services/whatsapp.service');
+    const { phone, message } = req.body;
+    if (!phone || !message) {
+      res.status(400).json({ message: 'Phone number and message text are required.' });
+      return;
+    }
+    const result = await WhatsAppService.sendTextMessage(phone, message);
+    res.status(200).json({ success: true, message: 'WhatsApp message delivered!', result });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message || 'WhatsApp message failed to send.' });
+  }
+});
+
 export default router;
 

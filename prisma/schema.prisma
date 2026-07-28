@@ -4,28 +4,29 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
+  provider = "postgresql"
 }
 
 model User {
-  id            String            @id @default(uuid())
-  name          String
-  email         String            @unique
-  phone         String?
-  password      String
-  role          UserRole          @default(RESTAURANT_OWNER)
-  restaurantId  String?           @map("restaurant_id")
-  isActive      Boolean?          @default(true) @map("is_active")
-  createdAt     DateTime          @default(now()) @map("created_at")
-  updatedAt     DateTime          @updatedAt @map("updated_at")
-  restaurants   Restaurant[]
-  customerNotes CustomerNote[]
-  assignedTickets ComplaintTicket[]
-  wastageRecords     WastageRecord[]
-  createdTransfers   StockTransfer[]      @relation("CreatedTransfers")
-  approvedTransfers  StockTransfer[]      @relation("ApprovedTransfers")
-  stockAudits        StockAudit[]
-  stockLedgers       StockLedger[]
+  id                   String                 @id @default(uuid())
+  name                 String
+  email                String                 @unique
+  password             String
+  role                 UserRole               @default(RESTAURANT_OWNER)
+  createdAt            DateTime               @default(now()) @map("created_at")
+  updatedAt            DateTime               @updatedAt @map("updated_at")
+  restaurantId         String?                @map("restaurant_id")
+  isActive             Boolean?               @default(true) @map("is_active")
+  phone                String?
+  assignedTickets      ComplaintTicket[]
+  customerNotes        CustomerNote[]
+  order_status_history order_status_history[]
+  restaurants          Restaurant[]
+  stockAudits          StockAudit[]
+  stockLedgers         StockLedger[]
+  approvedTransfers    StockTransfer[]        @relation("ApprovedTransfers")
+  createdTransfers     StockTransfer[]        @relation("CreatedTransfers")
+  wastageRecords       WastageRecord[]
 
   @@map("users")
 }
@@ -35,56 +36,60 @@ model Brand {
   name         String
   createdAt    DateTime          @default(now()) @map("created_at")
   updatedAt    DateTime          @updatedAt @map("updated_at")
-  restaurants  Restaurant[]
-  customers    Customer[]
-  loyaltyTiers LoyaltyTier[]
-  coupons      Coupon[]
-  segments     Segment[]
   campaigns    Campaign[]
   tickets      ComplaintTicket[]
+  coupons      Coupon[]
+  customers    Customer[]
+  loyaltyTiers LoyaltyTier[]
+  restaurants  Restaurant[]
+  segments     Segment[]
 
   @@map("brands")
 }
 
 model Restaurant {
-  id                 String                      @id @default(uuid())
-  brandId            String?                     @map("brand_id")
-  ownerId            String                      @map("owner_id")
-  name               String
-  slug               String                      @unique
-  logoUrl            String?                     @map("logo_url")
-  phone              String?
-  email              String?
-  address            String?
-  gstNumber          String?                     @map("gst_number")
-  isActive           Boolean                     @default(true) @map("is_active")
-  createdAt          DateTime                    @default(now()) @map("created_at")
-  updatedAt          DateTime                    @updatedAt @map("updated_at")
-  analyticsSnapshots AnalyticsSnapshot[]
-  categories         Category[]
-  menuItems          MenuItem[]
-  orders             Order[]
-  payments           Payment[]
-  promoRedemptions   PromoRedemption[]
-  settings           RestaurantSetting?
-  tables             RestaurantTable[]
-  owner              User                        @relation(fields: [ownerId], references: [id])
-  brand              Brand?                      @relation(fields: [brandId], references: [id])
-  subscriptions      Subscription[]
-  transactions       Transaction[]
-  notifications      Notification[]
+  id                    String                      @id @default(uuid())
+  ownerId               String                      @map("owner_id")
+  name                  String
+  slug                  String                      @unique
+  logoUrl               String?                     @map("logo_url")
+  phone                 String?
+  email                 String?
+  address               String?
+  gstNumber             String?                     @map("gst_number")
+  isActive              Boolean                     @default(true) @map("is_active")
+  createdAt             DateTime                    @default(now()) @map("created_at")
+  updatedAt             DateTime                    @updatedAt @map("updated_at")
+  brandId               String?                     @map("brand_id")
+  analytics_events      analytics_events[]
+  analyticsSnapshots    AnalyticsSnapshot[]
+  categories            Category[]
+  customerProfiles      CustomerRestaurantProfile[]
+  expenses              expenses[]
+  invoices              Invoice[]
+  menuItems             MenuItem[]
+  menuViewLogs          MenuViewLog[]
+  cartSessions          CartSession[]
+  notifications         Notification[]
+  orders                Order[]
   passcodeResetRequests PasscodeResetRequest[]
-  waiters            Waiter[]
-  invoices           Invoice[]
-  customerProfiles   CustomerRestaurantProfile[]
-  suppliers          Supplier[]
-  rawMaterials       RawMaterial[]
-  purchaseOrders     PurchaseOrder[]
-  wastageRecords     WastageRecord[]
-  sourceTransfers    StockTransfer[]             @relation("SourceTransfers")
-  destTransfers      StockTransfer[]             @relation("DestBranchTransfers")
-  stockAudits        StockAudit[]
-  stockLedgers       StockLedger[]
+  payments              Payment[]
+  promoRedemptions      PromoRedemption[]
+  purchaseOrders        PurchaseOrder[]
+  rawMaterials          RawMaterial[]
+  settings              RestaurantSetting?
+  tables                RestaurantTable[]
+  brand                 Brand?                      @relation(fields: [brandId], references: [id])
+  owner                 User                        @relation(fields: [ownerId], references: [id])
+  stockAudits           StockAudit[]
+  stockLedgers          StockLedger[]
+  destTransfers         StockTransfer[]             @relation("DestBranchTransfers")
+  sourceTransfers       StockTransfer[]             @relation("SourceTransfers")
+  subscriptions         Subscription[]
+  suppliers             Supplier[]
+  transactions          Transaction[]
+  waiters               Waiter[]
+  wastageRecords        WastageRecord[]
 
   @@map("restaurants")
 }
@@ -93,8 +98,6 @@ model SubscriptionPlan {
   id            String         @id @default(uuid())
   name          String
   price         Float
-  price6Month   Float          @default(0) @map("price_6_month")
-  price1Year    Float          @default(0) @map("price_1_year")
   durationDays  Int            @map("duration_days")
   maxTables     Int            @map("max_tables")
   maxMenuItems  Int            @map("max_menu_items")
@@ -102,8 +105,10 @@ model SubscriptionPlan {
   isActive      Boolean        @default(true) @map("is_active")
   createdAt     DateTime       @default(now()) @map("created_at")
   updatedAt     DateTime       @updatedAt @map("updated_at")
-  subscriptions Subscription[]
+  price6Month   Float          @default(0) @map("price_6_month")
+  price1Year    Float          @default(0) @map("price_1_year")
   promoCodes    PromoCode[]
+  subscriptions Subscription[]
 
   @@map("subscription_plans")
 }
@@ -133,12 +138,12 @@ model PromoCode {
   usageCount   Int               @default(0) @map("usage_count")
   expiresAt    DateTime?         @map("expires_at")
   isActive     Boolean           @default(true) @map("is_active")
-  planId       String?           @map("plan_id")
-  durationDays Int?              @map("duration_days")
   createdAt    DateTime          @default(now()) @map("created_at")
   updatedAt    DateTime          @updatedAt @map("updated_at")
-  redemptions  PromoRedemption[]
+  durationDays Int?              @map("duration_days")
+  planId       String?           @map("plan_id")
   plan         SubscriptionPlan? @relation(fields: [planId], references: [id], onDelete: Cascade)
+  redemptions  PromoRedemption[]
 
   @@index([planId])
   @@map("promo_codes")
@@ -149,8 +154,8 @@ model PromoRedemption {
   promoCodeId       String     @map("promo_code_id")
   restaurantId      String     @map("restaurant_id")
   redeemedAt        DateTime   @default(now()) @map("redeemed_at")
-  subscriptionStart DateTime?  @map("subscription_start")
   subscriptionEnd   DateTime?  @map("subscription_end")
+  subscriptionStart DateTime?  @map("subscription_start")
   promoCode         PromoCode  @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
   restaurant        Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 
@@ -175,23 +180,26 @@ model Category {
 }
 
 model MenuItem {
-  id                 String      @id @default(uuid())
-  restaurantId       String      @map("restaurant_id")
-  categoryId         String      @map("category_id")
-  name               String
-  description        String?
-  price              Float
-  imageUrl           String?     @map("image_url")
-  isAvailable        Boolean     @default(true) @map("is_available")
-  isFeatured         Boolean     @default(false) @map("is_featured")
-  isCompleteYourMeal Boolean     @default(true) @map("is_complete_your_meal")
-  foodType           String      @default("veg") @map("food_type")
-  createdAt          DateTime    @default(now()) @map("created_at")
-  updatedAt          DateTime    @updatedAt @map("updated_at")
-  category           Category    @relation(fields: [categoryId], references: [id])
-  restaurant         Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  orderItems         OrderItem[]
-  recipe             Recipe?
+  id                      String      @id @default(uuid())
+  restaurantId            String      @map("restaurant_id")
+  categoryId              String      @map("category_id")
+  name                    String
+  description             String?
+  price                   Float
+  imageUrl                String?     @map("image_url")
+  isAvailable             Boolean     @default(true) @map("is_available")
+  isFeatured              Boolean     @default(false) @map("is_featured")
+  createdAt               DateTime    @default(now()) @map("created_at")
+  updatedAt               DateTime    @updatedAt @map("updated_at")
+  foodType                String      @default("veg") @map("food_type")
+  isCompleteYourMeal      Boolean     @default(true) @map("is_complete_your_meal")
+  is_combo                Boolean     @default(false)
+  target_preparation_time Int         @default(15)
+  view_count              Int         @default(0)
+  category                Category    @relation(fields: [categoryId], references: [id])
+  restaurant              Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  orderItems              OrderItem[]
+  recipe                  Recipe?
 
   @@index([restaurantId])
   @@index([categoryId])
@@ -215,51 +223,63 @@ model RestaurantTable {
 }
 
 model Order {
-  id            String          @id @default(uuid())
-  restaurantId  String          @map("restaurant_id")
-  tableId       String          @map("table_id")
-  orderNumber   String          @map("order_number")
-  status        OrderStatus     @default(NEW)
-  subtotal      Float
-  taxAmount     Float           @map("tax_amount")
-  totalAmount   Float           @map("total_amount")
-  notes         String?
-  customerName  String?         @map("customer_name")
-  customerPhone String?         @map("customer_phone")
-  createdAt     DateTime        @default(now()) @map("created_at")
-  updatedAt     DateTime        @updatedAt @map("updated_at")
-  kotNumber     String?         @map("kot_number")
-  invoiceNumber String?         @map("invoice_number")
-  orderItems    OrderItem[]
-  restaurant    Restaurant      @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  table         RestaurantTable @relation(fields: [tableId], references: [id])
-  payments      Payment[]
-  invoice       Invoice?
-  customerId    String?         @map("customer_id")
-  customer      Customer?       @relation(fields: [customerId], references: [id])
-  loyaltyLedgers LoyaltyLedger[]
-  couponsRedeemed CustomerCoupon[]
-  feedback      Feedback?
+  id                   String                 @id @default(uuid())
+  restaurantId         String                 @map("restaurant_id")
+  tableId              String?                @map("table_id")
+  orderNumber          String                 @map("order_number")
+  status               OrderStatus            @default(NEW)
+  subtotal             Float
+  taxAmount            Float                  @map("tax_amount")
+  totalAmount          Float                  @map("total_amount")
+  notes                String?
+  createdAt            DateTime               @default(now()) @map("created_at")
+  updatedAt            DateTime               @updatedAt @map("updated_at")
+  customerName         String?                @map("customer_name")
+  customerPhone        String?                @map("customer_phone")
+  invoiceNumber        String?                @map("invoice_number")
+  kotNumber            String?                @map("kot_number")
+  customerId           String?                @map("customer_id")
+  source               OrderSource            @default(QR_SCAN)
+  type                 OrderType              @default(DINE_IN)
+  prepStartedAt        DateTime?              @map("prep_started_at")
+  servedAt             DateTime?              @map("served_at")
+  assignedWaiterId     String?                @map("assigned_waiter_id")
+  assignedWaiter       Waiter?                @relation(fields: [assignedWaiterId], references: [id])
+  couponsRedeemed      CustomerCoupon[]
+  feedback             Feedback?
+  invoice              Invoice?
+  loyaltyLedgers       LoyaltyLedger[]
+  orderItems           OrderItem[]
+  order_status_history order_status_history[]
+  customer             Customer?              @relation(fields: [customerId], references: [id])
+  restaurant           Restaurant             @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  table                RestaurantTable?       @relation(fields: [tableId], references: [id])
+  payments             Payment[]
 
   @@unique([restaurantId, orderNumber])
   @@index([restaurantId])
   @@index([tableId])
   @@index([status])
   @@index([customerId])
+  @@index([restaurantId, createdAt])
+  @@index([restaurantId, status, createdAt])
+  @@index([source])
+  @@index([type])
   @@map("orders")
 }
 
 model OrderItem {
-  id         String    @id @default(uuid())
-  orderId    String    @map("order_id")
-  menuItemId String?   @map("menu_item_id")
-  itemName   String    @map("item_name")
-  quantity   Int
-  unitPrice  Float     @map("unit_price")
-  totalPrice Float     @map("total_price")
-  createdAt  DateTime  @default(now()) @map("created_at")
-  menuItem   MenuItem? @relation(fields: [menuItemId], references: [id])
-  order      Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  id                      String    @id @default(uuid())
+  orderId                 String    @map("order_id")
+  menuItemId              String?   @map("menu_item_id")
+  itemName                String    @map("item_name")
+  quantity                Int
+  unitPrice               Float     @map("unit_price")
+  totalPrice              Float     @map("total_price")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  selected_modifiers_json Json?
+  menuItem                MenuItem? @relation(fields: [menuItemId], references: [id])
+  order                   Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([orderId])
   @@map("order_items")
@@ -272,6 +292,7 @@ model Payment {
   razorpayOrderId   String?       @map("razorpay_order_id")
   razorpayPaymentId String?       @map("razorpay_payment_id")
   amount            Float
+  refundedAmount    Float         @default(0) @map("refunded_amount")
   status            PaymentStatus @default(PENDING)
   paymentMethod     String?       @map("payment_method")
   paidAt            DateTime?     @map("paid_at")
@@ -283,6 +304,7 @@ model Payment {
 
   @@index([restaurantId])
   @@index([orderId])
+  @@index([restaurantId, paidAt])
   @@map("payments")
 }
 
@@ -303,38 +325,37 @@ model Transaction {
 }
 
 model RestaurantSetting {
-  id            String     @id @default(uuid())
-  restaurantId  String     @unique @map("restaurant_id")
-  currency      String     @default("INR")
-  taxPercentage Float      @default(0) @map("tax_percentage")
-  businessHours Json?      @map("business_hours")
-  themeSettings Json?      @map("theme_settings")
-  isPasscodeEnabled Boolean            @default(false) @map("is_passcode_enabled")
-  passcode          String?            @map("passcode")
-  invoiceSeries String?    @default("INV") @map("invoice_series")
-  kotSeries     String?    @default("KOT") @map("kot_series")
-  createdAt     DateTime   @default(now()) @map("created_at")
-  updatedAt     DateTime   @updatedAt @map("updated_at")
-  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  id                String     @id @default(uuid())
+  restaurantId      String     @unique @map("restaurant_id")
+  currency          String     @default("INR")
+  taxPercentage     Float      @default(0) @map("tax_percentage")
+  businessHours     Json?      @map("business_hours")
+  themeSettings     Json?      @map("theme_settings")
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
+  isPasscodeEnabled Boolean    @default(false) @map("is_passcode_enabled")
+  passcode          String?    @map("passcode")
+  invoiceSeries     String?    @default("INV") @map("invoice_series")
+  kotSeries         String?    @default("KOT") @map("kot_series")
+  restaurant        Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 
   @@map("restaurant_settings")
 }
 
 model Invoice {
-  id             String      @id @default(uuid())
-  restaurantId   String      @map("restaurant_id")
-  orderId        String      @unique @map("order_id")
-  invoiceNumber  String      @map("invoice_number")
-  subtotal       Float
-  discount       Float       @default(0)
-  gst            Float       @default(0)
-  grandTotal     Float       @map("grand_total")
-  paymentMethod  String      @map("payment_method")
-  paymentStatus  String      @map("payment_status")
-  createdAt      DateTime    @default(now()) @map("created_at")
-  
-  restaurant     Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  order          Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  id            String     @id @default(uuid())
+  restaurantId  String     @map("restaurant_id")
+  orderId       String     @unique @map("order_id")
+  invoiceNumber String     @map("invoice_number")
+  subtotal      Float
+  discount      Float      @default(0)
+  gst           Float      @default(0)
+  grandTotal    Float      @map("grand_total")
+  paymentMethod String     @map("payment_method")
+  paymentStatus String     @map("payment_status")
+  createdAt     DateTime   @default(now()) @map("created_at")
+  order         Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 
   @@unique([restaurantId, invoiceNumber])
   @@index([restaurantId])
@@ -371,44 +392,6 @@ model AuditLog {
   @@map("audit_logs")
 }
 
-enum UserRole {
-  SUPER_ADMIN
-  RESTAURANT_OWNER
-  STAFF
-  WAITER
-}
-
-enum OrderStatus {
-  NEW
-  ACCEPTED
-  PREPARING
-  READY
-  SERVED
-  PAID
-  CANCELLED
-}
-
-enum SubscriptionStatus {
-  ACTIVE
-  EXPIRED
-  CANCELLED
-  PENDING
-}
-
-enum PromoCodeType {
-  PERCENTAGE
-  FIXED
-  FREE_TRIAL
-  LIFETIME
-}
-
-enum PaymentStatus {
-  PENDING
-  SUCCESS
-  FAILED
-  REFUNDED
-}
-
 model Notification {
   id           String           @id @default(uuid())
   restaurantId String?          @map("restaurant_id")
@@ -424,13 +407,6 @@ model Notification {
   @@map("notifications")
 }
 
-enum NotificationType {
-  NEW_ORDER
-  BILLING
-  SYSTEM
-  HELP_REQUEST
-}
-
 model PasscodeResetRequest {
   id           String              @id @default(uuid())
   restaurantId String              @map("restaurant_id")
@@ -441,13 +417,6 @@ model PasscodeResetRequest {
 
   @@index([restaurantId])
   @@map("passcode_reset_requests")
-}
-
-enum PasscodeResetStatus {
-  PENDING
-  APPROVED
-  REJECTED
-  COMPLETED
 }
 
 model Waiter {
@@ -461,12 +430,12 @@ model Waiter {
   createdAt    DateTime   @default(now()) @map("created_at")
   updatedAt    DateTime   @updatedAt @map("updated_at")
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  orders       Order[]
 
   @@index([restaurantId])
   @@map("waiters")
 }
 
-// Global Customer Record (Unique per Brand)
 model Customer {
   id                String                      @id @default(uuid())
   brandId           String                      @map("brand_id")
@@ -476,19 +445,20 @@ model Customer {
   acquisitionSource String                      @default("QR_ORDER") @map("acquisition_source")
   metadataJson      Json?                       @map("metadata_json")
   aiSummary         String?                     @map("ai_summary")
+  birthday          DateTime?
+  anniversary       DateTime?
   createdAt         DateTime                    @default(now()) @map("created_at")
   updatedAt         DateTime                    @updatedAt @map("updated_at")
-  
-  brand             Brand                       @relation(fields: [brandId], references: [id], onDelete: Cascade)
-  profiles          CustomerRestaurantProfile[]
-  orders            Order[]
-  notes             CustomerNote[]
-  loyaltyAccount    LoyaltyAccount?
-  coupons           CustomerCoupon[]
-  segments          CustomerSegment[]
   campaignLogs      CampaignLog[]
-  feedbacks         Feedback[]
   tickets           ComplaintTicket[]
+  coupons           CustomerCoupon[]
+  notes             CustomerNote[]
+  profiles          CustomerRestaurantProfile[]
+  segments          CustomerSegment[]
+  brand             Brand                       @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  feedbacks         Feedback[]
+  loyaltyAccount    LoyaltyAccount?
+  orders            Order[]
 
   @@unique([brandId, phone])
   @@index([phone])
@@ -496,37 +466,32 @@ model Customer {
   @@map("customers")
 }
 
-// Outlet-Specific Profile Metrics
 model CustomerRestaurantProfile {
-  id                String       @id @default(uuid())
-  customerId        String       @map("customer_id")
-  restaurantId      String       @map("restaurant_id")
-  
-  totalSpend        Float        @default(0) @map("total_spend")
-  totalOrders       Int          @default(0) @map("total_orders")
-  aov               Float        @default(0) @map("aov")
-  ltv               Float        @default(0) @map("ltv")
-  firstVisit        DateTime     @default(now()) @map("first_visit")
-  lastVisit         DateTime     @default(now()) @map("last_visit")
-  visitFrequency    Float        @default(0) @map("visit_frequency")
-  repeatStatus      String       @default("NEW") @map("repeat_status")
-  
-  churnProbability  Float        @default(0) @map("churn_probability")
-  predictedLtv      Float        @default(0) @map("predicted_ltv")
-  healthScore       Float        @default(100) @map("health_score")
-  engagementScore   Float        @default(0) @map("engagement_score")
-  loyaltyTierId     String?      @map("loyalty_tier_id")
-  loyaltyTier       LoyaltyTier? @relation(fields: [loyaltyTierId], references: [id])
-  
-  customer          Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  restaurant        Restaurant   @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  id               String       @id @default(uuid())
+  customerId       String       @map("customer_id")
+  restaurantId     String       @map("restaurant_id")
+  totalSpend       Float        @default(0) @map("total_spend")
+  totalOrders      Int          @default(0) @map("total_orders")
+  aov              Float        @default(0) @map("aov")
+  ltv              Float        @default(0) @map("ltv")
+  firstVisit       DateTime     @default(now()) @map("first_visit")
+  lastVisit        DateTime     @default(now()) @map("last_visit")
+  visitFrequency   Float        @default(0) @map("visit_frequency")
+  repeatStatus     String       @default("NEW") @map("repeat_status")
+  churnProbability Float        @default(0) @map("churn_probability")
+  predictedLtv     Float        @default(0) @map("predicted_ltv")
+  healthScore      Float        @default(100) @map("health_score")
+  engagementScore  Float        @default(0) @map("engagement_score")
+  loyaltyTierId    String?      @map("loyalty_tier_id")
+  customer         Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  loyaltyTier      LoyaltyTier? @relation(fields: [loyaltyTierId], references: [id])
+  restaurant       Restaurant   @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 
   @@unique([customerId, restaurantId])
   @@index([restaurantId])
   @@map("customer_restaurant_profiles")
 }
 
-// Customer Notes Log
 model CustomerNote {
   id         String   @id @default(uuid())
   customerId String   @map("customer_id")
@@ -534,7 +499,6 @@ model CustomerNote {
   noteText   String   @map("note_text")
   isSystem   Boolean  @default(false) @map("is_system")
   createdAt  DateTime @default(now()) @map("created_at")
-  
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   user       User     @relation(fields: [userId], references: [id])
 
@@ -550,8 +514,8 @@ model LoyaltyTier {
   multiplier Float                       @default(1.0)
   createdAt  DateTime                    @default(now()) @map("created_at")
   updatedAt  DateTime                    @updatedAt @map("updated_at")
-  brand      Brand                       @relation(fields: [brandId], references: [id], onDelete: Cascade)
   profiles   CustomerRestaurantProfile[]
+  brand      Brand                       @relation(fields: [brandId], references: [id], onDelete: Cascade)
 
   @@unique([brandId, name])
   @@map("loyalty_tiers")
@@ -579,20 +543,12 @@ model LoyaltyLedger {
   orderId          String?                @map("order_id")
   createdAt        DateTime               @default(now()) @map("created_at")
   loyaltyAccount   LoyaltyAccount         @relation(fields: [loyaltyAccountId], references: [id], onDelete: Cascade)
-  order            Order?                 @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  order            Order?                 @relation(fields: [orderId], references: [id])
 
   @@index([loyaltyAccountId])
   @@map("loyalty_ledgers")
 }
 
-enum LoyaltyTransactionType {
-  EARN
-  REDEMPTION
-  REFUND
-  MANUAL_ADJUSTMENT
-}
-
-// CRM Coupon Campaigns
 model Coupon {
   id                String             @id @default(uuid())
   brandId           String             @map("brand_id")
@@ -606,7 +562,6 @@ model Coupon {
   isActive          Boolean            @default(true) @map("is_active")
   createdAt         DateTime           @default(now()) @map("created_at")
   updatedAt         DateTime           @updatedAt @map("updated_at")
-  
   brand             Brand              @relation(fields: [brandId], references: [id], onDelete: Cascade)
   issuances         CustomerCoupon[]
 
@@ -614,7 +569,6 @@ model Coupon {
   @@map("coupons")
 }
 
-// Personalized Coupon Issuances per Customer
 model CustomerCoupon {
   id         String    @id @default(uuid())
   couponId   String    @map("coupon_id")
@@ -623,21 +577,14 @@ model CustomerCoupon {
   redeemedAt DateTime? @map("redeemed_at")
   orderId    String?   @map("order_id")
   createdAt  DateTime  @default(now()) @map("created_at")
-  
   coupon     Coupon    @relation(fields: [couponId], references: [id], onDelete: Cascade)
   customer   Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  order      Order?    @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  order      Order?    @relation(fields: [orderId], references: [id])
 
   @@index([customerId])
   @@map("customer_coupons")
 }
 
-enum CouponDiscountType {
-  PERCENTAGE
-  FIXED
-}
-
-// Customer Segments (VIP, Churned, etc.)
 model Segment {
   id           String            @id @default(uuid())
   brandId      String            @map("brand_id")
@@ -646,53 +593,47 @@ model Segment {
   criteriaJson Json              @map("criteria_json")
   createdAt    DateTime          @default(now()) @map("created_at")
   updatedAt    DateTime          @updatedAt @map("updated_at")
-  
-  brand        Brand             @relation(fields: [brandId], references: [id], onDelete: Cascade)
-  customers    CustomerSegment[]
   campaigns    Campaign[]
+  customers    CustomerSegment[]
+  brand        Brand             @relation(fields: [brandId], references: [id], onDelete: Cascade)
 
   @@unique([brandId, name])
   @@map("segments")
 }
 
-// Track Segment Memberships
 model CustomerSegment {
   id         String   @id @default(uuid())
   segmentId  String   @map("segment_id")
   customerId String   @map("customer_id")
   createdAt  DateTime @default(now()) @map("created_at")
-  
-  segment    Segment  @relation(fields: [segmentId], references: [id], onDelete: Cascade)
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  segment    Segment  @relation(fields: [segmentId], references: [id], onDelete: Cascade)
 
   @@unique([segmentId, customerId])
   @@map("customer_segments")
 }
 
-// CRM Marketing Campaigns
 model Campaign {
-  id              String            @id @default(uuid())
-  brandId         String            @map("brand_id")
+  id              String          @id @default(uuid())
+  brandId         String          @map("brand_id")
   name            String
   channel         CampaignChannel
-  segmentId       String?           @map("segment_id")
-  templateSubject String?           @map("template_subject")
-  templateBody    String            @map("template_body")
-  status          CampaignStatus    @default(DRAFT)
-  scheduledAt     DateTime          @map("scheduled_at")
-  sentCount       Int               @default(0) @map("sent_count")
-  failedCount     Int               @default(0) @map("failed_count")
-  createdAt       DateTime          @default(now()) @map("created_at")
-  updatedAt       DateTime          @updatedAt @map("updated_at")
-  
-  brand           Brand             @relation(fields: [brandId], references: [id], onDelete: Cascade)
-  segment         Segment?          @relation(fields: [segmentId], references: [id], onDelete: SetNull)
+  segmentId       String?         @map("segment_id")
+  templateSubject String?         @map("template_subject")
+  templateBody    String          @map("template_body")
+  status          CampaignStatus  @default(DRAFT)
+  scheduledAt     DateTime        @map("scheduled_at")
+  sentCount       Int             @default(0) @map("sent_count")
+  failedCount     Int             @default(0) @map("failed_count")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
   logs            CampaignLog[]
+  brand           Brand           @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  segment         Segment?        @relation(fields: [segmentId], references: [id])
 
   @@map("campaigns")
 }
 
-// Campaign Execution Logs
 model CampaignLog {
   id           String            @id @default(uuid())
   campaignId   String            @map("campaign_id")
@@ -700,12 +641,405 @@ model CampaignLog {
   status       CampaignLogStatus @default(PENDING)
   errorDetails String?           @map("error_details")
   createdAt    DateTime          @default(now()) @map("created_at")
-  
   campaign     Campaign          @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   customer     Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@index([customerId])
   @@map("campaign_logs")
+}
+
+model Feedback {
+  id         String           @id @default(uuid())
+  orderId    String           @unique @map("order_id")
+  customerId String           @map("customer_id")
+  rating     Int
+  comments   String?
+  createdAt  DateTime         @default(now()) @map("created_at")
+  ticket     ComplaintTicket?
+  customer   Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  order      Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("feedbacks")
+}
+
+model ComplaintTicket {
+  id             String       @id @default(uuid())
+  brandId        String       @map("brand_id")
+  feedbackId     String?      @unique @map("feedback_id")
+  customerId     String       @map("customer_id")
+  subject        String
+  description    String
+  status         TicketStatus @default(OPEN)
+  assignedUserId String?      @map("assigned_user_id")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  assignedUser   User?        @relation(fields: [assignedUserId], references: [id])
+  brand          Brand        @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  customer       Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  feedback       Feedback?    @relation(fields: [feedbackId], references: [id])
+
+  @@map("complaint_tickets")
+}
+
+model Supplier {
+  id                 String          @id @default(uuid())
+  restaurantId       String          @map("restaurant_id")
+  name               String
+  contactName        String?         @map("contact_name")
+  phone              String
+  email              String?
+  gstNumber          String?         @map("gst_number")
+  address            String?
+  creditDays         Int             @default(0) @map("credit_days")
+  outstandingBalance Float           @default(0) @map("outstanding_balance")
+  isActive           Boolean         @default(true) @map("is_active")
+  createdAt          DateTime        @default(now()) @map("created_at")
+  updatedAt          DateTime        @updatedAt @map("updated_at")
+  purchaseOrders     PurchaseOrder[]
+  rawMaterials       RawMaterial[]
+  restaurant         Restaurant      @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@index([restaurantId])
+  @@map("suppliers")
+}
+
+model RawMaterial {
+  id                 String              @id @default(uuid())
+  restaurantId       String              @map("restaurant_id")
+  supplierId         String?             @map("supplier_id")
+  name               String
+  category           String
+  sku                String
+  unit               String
+  openingStock       Float               @map("opening_stock")
+  currentStock       Float               @map("current_stock")
+  minimumStockLevel  Float               @map("minimum_stock_level")
+  maximumStockLevel  Float               @map("maximum_stock_level")
+  reorderQuantity    Float               @map("reorder_quantity")
+  purchasePrice      Float               @map("purchase_price")
+  averageCost        Float               @map("average_cost")
+  lastPurchaseDate   DateTime?           @map("last_purchase_date")
+  expiryDate         DateTime?           @map("expiry_date")
+  storageLocation    String?             @map("storage_location")
+  notes              String?
+  status             RawMaterialStatus   @default(ACTIVE)
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  purchaseOrderItems PurchaseOrderItem[]
+  restaurant         Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  supplier           Supplier?           @relation(fields: [supplierId], references: [id])
+  recipeIngredients  RecipeIngredient[]
+  auditItems         StockAuditItem[]
+  stockBatches       StockBatch[]
+  stockLedgers       StockLedger[]
+  transferItems      StockTransferItem[]
+  wastageRecords     WastageRecord[]
+
+  @@unique([restaurantId, sku])
+  @@index([restaurantId])
+  @@index([supplierId])
+  @@map("raw_materials")
+}
+
+model Recipe {
+  id          String             @id @default(uuid())
+  menuItemId  String             @unique @map("menu_item_id")
+  notes       String?
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+  ingredients RecipeIngredient[]
+  menuItem    MenuItem           @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@map("recipes")
+}
+
+model RecipeIngredient {
+  id            String      @id @default(uuid())
+  recipeId      String      @map("recipe_id")
+  rawMaterialId String      @map("raw_material_id")
+  quantity      Float
+  rawMaterial   RawMaterial @relation(fields: [rawMaterialId], references: [id])
+  recipe        Recipe      @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  @@unique([recipeId, rawMaterialId])
+  @@map("recipe_ingredients")
+}
+
+model StockBatch {
+  id            String      @id @default(uuid())
+  rawMaterialId String      @map("raw_material_id")
+  batchNumber   String      @map("batch_number")
+  quantity      Float
+  purchasePrice Float       @map("purchase_price")
+  expiryDate    DateTime    @map("expiry_date")
+  receivedDate  DateTime    @default(now()) @map("received_date")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+  rawMaterial   RawMaterial @relation(fields: [rawMaterialId], references: [id], onDelete: Cascade)
+
+  @@index([rawMaterialId])
+  @@index([expiryDate])
+  @@map("stock_batches")
+}
+
+model PurchaseOrder {
+  id                   String              @id @default(uuid())
+  restaurantId         String              @map("restaurant_id")
+  supplierId           String              @map("supplier_id")
+  poNumber             String              @map("po_number")
+  status               PurchaseOrderStatus @default(DRAFT)
+  orderDate            DateTime            @default(now()) @map("order_date")
+  expectedDate         DateTime?           @map("expected_date")
+  receivedDate         DateTime?           @map("received_date")
+  subtotal             Float
+  gstAmount            Float               @map("gst_amount")
+  grandTotal           Float               @map("grand_total")
+  invoiceNumber        String?             @map("invoice_number")
+  invoiceAttachmentUrl String?             @map("invoice_attachment_url")
+  notes                String?
+  createdAt            DateTime            @default(now()) @map("created_at")
+  updatedAt            DateTime            @updatedAt @map("updated_at")
+  items                PurchaseOrderItem[]
+  restaurant           Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  supplier             Supplier            @relation(fields: [supplierId], references: [id])
+
+  @@unique([restaurantId, poNumber])
+  @@index([restaurantId])
+  @@index([supplierId])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id            String        @id @default(uuid())
+  poId          String        @map("po_id")
+  rawMaterialId String        @map("raw_material_id")
+  quantity      Float
+  unitPrice     Float         @map("unit_price")
+  gstPercentage Float         @default(0) @map("gst_percentage")
+  totalCost     Float         @map("total_cost")
+  expiryDate    DateTime?     @map("expiry_date")
+  purchaseOrder PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  rawMaterial   RawMaterial   @relation(fields: [rawMaterialId], references: [id])
+
+  @@map("purchase_order_items")
+}
+
+model WastageRecord {
+  id            String        @id @default(uuid())
+  restaurantId  String        @map("restaurant_id")
+  rawMaterialId String        @map("raw_material_id")
+  userId        String        @map("user_id")
+  quantity      Float
+  cost          Float
+  reason        WastageReason
+  notes         String?
+  wasteDate     DateTime      @default(now()) @map("waste_date")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  rawMaterial   RawMaterial   @relation(fields: [rawMaterialId], references: [id])
+  restaurant    Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  user          User          @relation(fields: [userId], references: [id])
+
+  @@index([restaurantId])
+  @@index([rawMaterialId])
+  @@map("wastage_records")
+}
+
+model StockTransfer {
+  id             String              @id @default(uuid())
+  brandId        String              @map("brand_id")
+  sourceBranchId String              @map("source_branch_id")
+  destBranchId   String              @map("dest_branch_id")
+  transferNumber String              @map("transfer_number")
+  status         TransferStatus      @default(PENDING)
+  notes          String?
+  createdById    String              @map("created_by_id")
+  approvedById   String?             @map("approved_by_id")
+  sentDate       DateTime?           @map("sent_date")
+  receivedDate   DateTime?           @map("received_date")
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
+  items          StockTransferItem[]
+  approvedBy     User?               @relation("ApprovedTransfers", fields: [approvedById], references: [id])
+  createdBy      User                @relation("CreatedTransfers", fields: [createdById], references: [id])
+  destBranch     Restaurant          @relation("DestBranchTransfers", fields: [destBranchId], references: [id], onDelete: Cascade)
+  sourceBranch   Restaurant          @relation("SourceTransfers", fields: [sourceBranchId], references: [id], onDelete: Cascade)
+
+  @@unique([brandId, transferNumber])
+  @@map("stock_transfers")
+}
+
+model StockTransferItem {
+  id            String        @id @default(uuid())
+  transferId    String        @map("transfer_id")
+  rawMaterialId String        @map("raw_material_id")
+  quantity      Float
+  rawMaterial   RawMaterial   @relation(fields: [rawMaterialId], references: [id])
+  transfer      StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+
+  @@map("stock_transfer_items")
+}
+
+model StockAudit {
+  id           String           @id @default(uuid())
+  restaurantId String           @map("restaurant_id")
+  userId       String           @map("user_id")
+  auditDate    DateTime         @default(now()) @map("audit_date")
+  notes        String?
+  createdAt    DateTime         @default(now()) @map("created_at")
+  items        StockAuditItem[]
+  restaurant   Restaurant       @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  user         User             @relation(fields: [userId], references: [id])
+
+  @@index([restaurantId])
+  @@map("stock_audits")
+}
+
+model StockAuditItem {
+  id            String      @id @default(uuid())
+  auditId       String      @map("audit_id")
+  rawMaterialId String      @map("raw_material_id")
+  expectedStock Float       @map("expected_stock")
+  actualStock   Float       @map("actual_stock")
+  variance      Float
+  notes         String?
+  stockAudit    StockAudit  @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  rawMaterial   RawMaterial @relation(fields: [rawMaterialId], references: [id])
+
+  @@map("stock_audit_items")
+}
+
+model StockLedger {
+  id            String           @id @default(uuid())
+  restaurantId  String           @map("restaurant_id")
+  rawMaterialId String           @map("raw_material_id")
+  userId        String?          @map("user_id")
+  quantity      Float
+  previousStock Float            @map("previous_stock")
+  newStock      Float            @map("new_stock")
+  actionType    LedgerActionType @map("action_type")
+  referenceId   String?          @map("reference_id")
+  reason        String?
+  createdAt     DateTime         @default(now()) @map("created_at")
+  rawMaterial   RawMaterial      @relation(fields: [rawMaterialId], references: [id], onDelete: Cascade)
+  restaurant    Restaurant       @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  user          User?            @relation(fields: [userId], references: [id])
+
+  @@index([restaurantId])
+  @@index([rawMaterialId])
+  @@map("stock_ledgers")
+}
+
+model analytics_events {
+  id            String     @id
+  restaurant_id String
+  event_type    EventType
+  session_id    String
+  item_id       String?
+  metadata      Json?
+  created_at    DateTime   @default(now())
+  restaurants   Restaurant @relation(fields: [restaurant_id], references: [id], onDelete: Cascade)
+
+  @@index([created_at])
+  @@index([restaurant_id, event_type])
+}
+
+model expenses {
+  id            String          @id
+  restaurant_id String
+  amount        Float
+  category      ExpenseCategory
+  description   String?
+  expense_date  DateTime
+  created_at    DateTime        @default(now())
+  updated_at    DateTime
+  restaurants   Restaurant      @relation(fields: [restaurant_id], references: [id], onDelete: Cascade)
+
+  @@index([expense_date])
+  @@index([restaurant_id])
+}
+
+model order_status_history {
+  id          String       @id
+  order_id    String
+  from_status OrderStatus?
+  to_status   OrderStatus
+  user_id     String?
+  created_at  DateTime     @default(now())
+  orders      Order        @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  users       User?        @relation(fields: [user_id], references: [id])
+
+  @@index([created_at])
+  @@index([order_id])
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  RESTAURANT_OWNER
+  STAFF
+  WAITER
+}
+
+enum OrderStatus {
+  NEW
+  PREPARING
+  READY
+  SERVED
+  CANCELLED
+  ACCEPTED
+  PAID
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+  PENDING
+}
+
+enum PromoCodeType {
+  PERCENTAGE
+  FIXED
+  FREE_TRIAL
+  LIFETIME
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+}
+
+enum OrderSource {
+  QR_SCAN
+  POS_WAITER
+  ONLINE_DIRECT
+}
+
+enum NotificationType {
+  NEW_ORDER
+  BILLING
+  SYSTEM
+  HELP_REQUEST
+}
+
+enum PasscodeResetStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
+enum LoyaltyTransactionType {
+  EARN
+  REDEMPTION
+  REFUND
+  MANUAL_ADJUSTMENT
+}
+
+enum CouponDiscountType {
+  PERCENTAGE
+  FIXED
 }
 
 enum CampaignChannel {
@@ -728,111 +1062,10 @@ enum CampaignLogStatus {
   FAILED
 }
 
-// Customer Reviews & Feedback
-model Feedback {
-  id         String           @id @default(uuid())
-  orderId    String           @unique @map("order_id")
-  customerId String           @map("customer_id")
-  rating     Int
-  comments   String?
-  createdAt  DateTime         @default(now()) @map("created_at")
-  
-  order      Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  customer   Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  ticket     ComplaintTicket?
-
-  @@map("feedbacks")
-}
-
-// Complaint Tickets
-model ComplaintTicket {
-  id             String       @id @default(uuid())
-  brandId        String       @map("brand_id")
-  feedbackId     String?      @unique @map("feedback_id")
-  customerId     String       @map("customer_id")
-  subject        String
-  description    String
-  status         TicketStatus @default(OPEN)
-  assignedUserId String?      @map("assigned_user_id")
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
-  
-  brand          Brand        @relation(fields: [brandId], references: [id], onDelete: Cascade)
-  feedback       Feedback?    @relation(fields: [feedbackId], references: [id], onDelete: SetNull)
-  customer       Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  assignedUser   User?        @relation(fields: [assignedUserId], references: [id], onDelete: SetNull)
-
-  @@map("complaint_tickets")
-}
-
 enum TicketStatus {
   OPEN
   IN_PROGRESS
   RESOLVED
-}
-
-// Suppliers for Raw Materials
-model Supplier {
-  id                 String           @id @default(uuid())
-  restaurantId       String           @map("restaurant_id")
-  name               String
-  contactName        String?          @map("contact_name")
-  phone              String
-  email              String?
-  gstNumber          String?          @map("gst_number")
-  address            String?
-  creditDays         Int              @default(0) @map("credit_days")
-  outstandingBalance Float            @default(0) @map("outstanding_balance")
-  isActive           Boolean          @default(true) @map("is_active")
-  createdAt          DateTime         @default(now()) @map("created_at")
-  updatedAt          DateTime         @updatedAt @map("updated_at")
-  
-  restaurant         Restaurant       @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  rawMaterials       RawMaterial[]
-  purchaseOrders     PurchaseOrder[]
-
-  @@index([restaurantId])
-  @@map("suppliers")
-}
-
-// Raw Materials / Ingredients
-model RawMaterial {
-  id                 String               @id @default(uuid())
-  restaurantId       String               @map("restaurant_id")
-  supplierId         String?              @map("supplier_id")
-  name               String
-  category           String               // e.g., Dairy, Vegetable, Meat, Grocery
-  sku                String               
-  unit               String               // e.g., KG, GM, LTR, ML, PCS
-  openingStock       Float                @map("opening_stock")
-  currentStock       Float                @map("current_stock")
-  minimumStockLevel  Float                @map("minimum_stock_level")
-  maximumStockLevel  Float                @map("maximum_stock_level")
-  reorderQuantity    Float                @map("reorder_quantity")
-  purchasePrice      Float                @map("purchase_price")
-  averageCost        Float                @map("average_cost")
-  lastPurchaseDate   DateTime?            @map("last_purchase_date")
-  expiryDate         DateTime?            @map("expiry_date") 
-  storageLocation    String?              @map("storage_location") // e.g., Cold Room 1, Shelf B
-  notes              String?
-  status             RawMaterialStatus    @default(ACTIVE)
-  createdAt          DateTime             @default(now()) @map("created_at")
-  updatedAt          DateTime             @updatedAt @map("updated_at")
-  
-  restaurant         Restaurant           @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  supplier           Supplier?            @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  recipeIngredients  RecipeIngredient[]
-  purchaseOrderItems PurchaseOrderItem[]
-  wastageRecords     WastageRecord[]
-  stockLedgers       StockLedger[]
-  stockBatches       StockBatch[]
-  transferItems      StockTransferItem[]
-  auditItems         StockAuditItem[]
-
-  @@unique([restaurantId, sku])
-  @@index([restaurantId])
-  @@index([supplierId])
-  @@map("raw_materials")
 }
 
 enum RawMaterialStatus {
@@ -840,124 +1073,11 @@ enum RawMaterialStatus {
   INACTIVE
 }
 
-// Recipe definitions mapping menu items to raw materials
-model Recipe {
-  id           String             @id @default(uuid())
-  menuItemId   String             @unique @map("menu_item_id")
-  notes        String?
-  createdAt    DateTime           @default(now()) @map("created_at")
-  updatedAt    DateTime           @updatedAt @map("updated_at")
-  
-  menuItem     MenuItem           @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
-  ingredients  RecipeIngredient[]
-
-  @@map("recipes")
-}
-
-model RecipeIngredient {
-  id            String      @id @default(uuid())
-  recipeId      String      @map("recipe_id")
-  rawMaterialId String      @map("raw_material_id")
-  quantity      Float       // Quantity required per dish serving
-  
-  recipe        Recipe      @relation(fields: [recipeId], references: [id], onDelete: Cascade)
-  rawMaterial   RawMaterial @relation(fields: [rawMaterialId], references: [id], onDelete: Restrict)
-
-  @@unique([recipeId, rawMaterialId])
-  @@map("recipe_ingredients")
-}
-
-// Stock Batches for Expiry tracking
-model StockBatch {
-  id            String      @id @default(uuid())
-  rawMaterialId String      @map("raw_material_id")
-  batchNumber   String      @map("batch_number")
-  quantity      Float       
-  purchasePrice Float       @map("purchase_price")
-  expiryDate    DateTime    @map("expiry_date")
-  receivedDate  DateTime    @default(now()) @map("received_date")
-  createdAt     DateTime    @default(now()) @map("created_at")
-  updatedAt     DateTime    @updatedAt @map("updated_at")
-  
-  rawMaterial   RawMaterial @relation(fields: [rawMaterialId], references: [id], onDelete: Cascade)
-
-  @@index([rawMaterialId])
-  @@index([expiryDate])
-  @@map("stock_batches")
-}
-
-// Purchase Orders
-model PurchaseOrder {
-  id                  String             @id @default(uuid())
-  restaurantId        String             @map("restaurant_id")
-  supplierId          String             @map("supplier_id")
-  poNumber            String             @map("po_number")
-  status              PurchaseOrderStatus @default(DRAFT)
-  orderDate           DateTime           @default(now()) @map("order_date")
-  expectedDate        DateTime?          @map("expected_date")
-  receivedDate        DateTime?          @map("received_date")
-  subtotal            Float
-  gstAmount           Float              @map("gst_amount")
-  grandTotal          Float              @map("grand_total")
-  invoiceNumber       String?            @map("invoice_number")
-  invoiceAttachmentUrl String?           @map("invoice_attachment_url")
-  notes               String?
-  createdAt           DateTime           @default(now()) @map("created_at")
-  updatedAt           DateTime           @updatedAt @map("updated_at")
-  
-  restaurant          Restaurant         @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  supplier            Supplier           @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  items               PurchaseOrderItem[]
-
-  @@unique([restaurantId, poNumber])
-  @@index([restaurantId])
-  @@index([supplierId])
-  @@map("purchase_orders")
-}
-
-model PurchaseOrderItem {
-  id            String        @id @default(uuid())
-  poId          String        @map("po_id")
-  rawMaterialId String        @map("raw_material_id")
-  quantity      Float
-  unitPrice     Float         @map("unit_price")
-  gstPercentage Float         @default(0) @map("gst_percentage")
-  totalCost     Float         @map("total_cost")
-  expiryDate    DateTime?     @map("expiry_date")
-  
-  purchaseOrder PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
-  rawMaterial   RawMaterial   @relation(fields: [rawMaterialId], references: [id], onDelete: Restrict)
-
-  @@map("purchase_order_items")
-}
-
 enum PurchaseOrderStatus {
   DRAFT
   PENDING
   RECEIVED
   CANCELLED
-}
-
-// Wastage Records
-model WastageRecord {
-  id            String        @id @default(uuid())
-  restaurantId  String        @map("restaurant_id")
-  rawMaterialId String        @map("raw_material_id")
-  userId        String        @map("user_id") 
-  quantity      Float
-  cost          Float         
-  reason        WastageReason
-  notes         String?
-  wasteDate     DateTime      @default(now()) @map("waste_date")
-  createdAt     DateTime      @default(now()) @map("created_at")
-  
-  restaurant    Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  rawMaterial   RawMaterial   @relation(fields: [rawMaterialId], references: [id], onDelete: Restrict)
-  user          User          @relation(fields: [userId], references: [id], onDelete: Restrict)
-
-  @@index([restaurantId])
-  @@index([rawMaterialId])
-  @@map("wastage_records")
 }
 
 enum WastageReason {
@@ -969,105 +1089,12 @@ enum WastageReason {
   OTHER
 }
 
-// Multi-Branch Transfers
-model StockTransfer {
-  id                String              @id @default(uuid())
-  brandId           String              @map("brand_id") 
-  sourceBranchId    String              @map("source_branch_id")
-  destBranchId      String              @map("dest_branch_id")
-  transferNumber    String              @map("transfer_number")
-  status            TransferStatus      @default(PENDING)
-  notes             String?
-  createdById       String              @map("created_by_id")
-  approvedById      String?             @map("approved_by_id")
-  sentDate          DateTime?           @map("sent_date")
-  receivedDate      DateTime?           @map("received_date")
-  createdAt         DateTime            @default(now()) @map("created_at")
-  updatedAt         DateTime            @updatedAt @map("updated_at")
-  
-  sourceBranch      Restaurant          @relation("SourceTransfers", fields: [sourceBranchId], references: [id], onDelete: Cascade)
-  destBranch        Restaurant          @relation("DestBranchTransfers", fields: [destBranchId], references: [id], onDelete: Cascade)
-  createdBy         User                @relation("CreatedTransfers", fields: [createdById], references: [id])
-  approvedBy        User?               @relation("ApprovedTransfers", fields: [approvedById], references: [id])
-  items             StockTransferItem[]
-
-  @@unique([brandId, transferNumber])
-  @@map("stock_transfers")
-}
-
-model StockTransferItem {
-  id            String        @id @default(uuid())
-  transferId    String        @map("transfer_id")
-  rawMaterialId String        @map("raw_material_id") 
-  quantity      Float
-  
-  transfer      StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
-  rawMaterial   RawMaterial   @relation(fields: [rawMaterialId], references: [id], onDelete: Restrict)
-
-  @@map("stock_transfer_items")
-}
-
 enum TransferStatus {
   PENDING
   APPROVED
   REJECTED
   COMPLETED
   CANCELLED
-}
-
-// Physical Audits & Variance Reports
-model StockAudit {
-  id            String          @id @default(uuid())
-  restaurantId  String          @map("restaurant_id")
-  userId        String          @map("user_id") 
-  auditDate     DateTime        @default(now()) @map("audit_date")
-  notes         String?
-  createdAt     DateTime        @default(now()) @map("created_at")
-  
-  restaurant    Restaurant      @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  user          User            @relation(fields: [userId], references: [id])
-  items         StockAuditItem[]
-
-  @@index([restaurantId])
-  @@map("stock_audits")
-}
-
-model StockAuditItem {
-  id            String      @id @default(uuid())
-  auditId       String      @map("audit_id")
-  rawMaterialId String      @map("raw_material_id")
-  expectedStock Float       @map("expected_stock")
-  actualStock   Float       @map("actual_stock")
-  variance      Float       
-  notes         String?     
-  
-  stockAudit    StockAudit  @relation(fields: [auditId], references: [id], onDelete: Cascade)
-  rawMaterial   RawMaterial @relation(fields: [rawMaterialId], references: [id], onDelete: Restrict)
-
-  @@map("stock_audit_items")
-}
-
-// Unified Stock Ledger (Deductions, Purchases, Adjustments, Transfers)
-model StockLedger {
-  id            String           @id @default(uuid())
-  restaurantId  String           @map("restaurant_id")
-  rawMaterialId String           @map("raw_material_id")
-  userId        String?          @map("user_id") 
-  quantity      Float            
-  previousStock Float            @map("previous_stock")
-  newStock      Float            @map("new_stock")
-  actionType    LedgerActionType @map("action_type")
-  referenceId   String?          @map("reference_id") 
-  reason        String?
-  createdAt     DateTime         @default(now()) @map("created_at")
-  
-  restaurant    Restaurant       @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  rawMaterial   RawMaterial      @relation(fields: [rawMaterialId], references: [id], onDelete: Cascade)
-  user          User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
-
-  @@index([restaurantId])
-  @@index([rawMaterialId])
-  @@map("stock_ledgers")
 }
 
 enum LedgerActionType {
@@ -1080,3 +1107,54 @@ enum LedgerActionType {
   PHYSICAL_AUDIT
   MANUAL_ADJUSTMENT
 }
+
+enum EventType {
+  QR_SCAN
+  CART_VIEW
+  MENU_ITEM_VIEW
+  ORDER_ATTEMPT
+}
+
+enum ExpenseCategory {
+  OPERATIONAL
+  SALARY
+  RENT
+  UTILITIES
+  MARKETING
+  DEPRECIATION
+  OTHER
+}
+
+enum OrderType {
+  DINE_IN
+  TAKEAWAY
+  DELIVERY
+}
+
+model MenuViewLog {
+  id           String     @id @default(uuid())
+  restaurantId String     @map("restaurant_id")
+  sessionId    String     @map("session_id")
+  viewedAt     DateTime   @default(now()) @map("viewed_at")
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@index([restaurantId])
+  @@index([viewedAt])
+  @@map("menu_view_logs")
+}
+
+model CartSession {
+  id           String     @id @default(uuid())
+  restaurantId String     @map("restaurant_id")
+  sessionId    String     @map("session_id")
+  isActive     Boolean    @default(true) @map("is_active")
+  isAbandoned  Boolean    @default(false) @map("is_abandoned")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@index([restaurantId])
+  @@index([sessionId])
+  @@map("cart_sessions")
+}
+

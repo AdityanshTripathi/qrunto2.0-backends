@@ -12,6 +12,7 @@ router.post('/:slug/referral/claim', (req, res) => publicController.claimReferra
 router.get('/:slug/orders/:orderId/status', (req, res) => publicController.getOrderStatus(req, res));
 router.post('/:slug/orders/:orderId/pay-mock', (req, res) => publicController.markOrderPaidMock(req, res));
 router.post('/:slug/tables/:tableNumber/assistance', (req, res) => publicController.requestAssistance(req, res));
+router.post('/:slug/cart/ping', (req, res) => publicController.pingCart(req, res));
 
 export default router;
 

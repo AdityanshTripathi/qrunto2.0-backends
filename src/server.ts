@@ -23,6 +23,7 @@ import segmentRouter from './routes/crm/segment.routes';
 import campaignRouter from './routes/crm/campaign.routes';
 import feedbackRouter from './routes/crm/feedback.routes';
 import aiGatewayRouter from './routes/crm/ai-gateway.routes';
+import whatsappRouter from './routes/whatsapp.routes';
 import { CRMScheduler } from './services/crm/scheduler.service';
 import http from 'http';
 import { Server } from 'socket.io';
@@ -107,6 +108,9 @@ app.use('/api/crm/ai', aiGatewayRouter);
 
 // Public customer-facing routes (no auth)
 app.use('/api/public', publicRouter);
+
+// Meta WhatsApp Webhook route
+app.use('/api/webhook/whatsapp', whatsappRouter);
 
 // Health check endpoint
 app.get('/health', (req: Request, res: Response) => {
