@@ -20,8 +20,7 @@ router.get('/', (req: Request, res: Response) => {
     if (mode && token) {
       if (mode === 'subscribe' && token === verifyToken) {
         console.log('[WhatsApp Webhook] Verification successful!');
-        res.setHeader('Content-Type', 'text/plain');
-        res.status(200).send(challenge);
+        res.type('text/plain').send(challenge);
         return;
       } else {
         console.error('[WhatsApp Webhook] Verification failed. Token mismatch.');
