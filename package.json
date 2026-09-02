@@ -8,6 +8,9 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "postinstall": "prisma generate",
+    "db:check": "ts-node src/scripts/check-database-connection.ts",
+    "test:tenant-security": "ts-node src/scripts/test-order-tenant-security.ts",
+    "test:cors-security": "ts-node src/scripts/test-cors-security.ts",
     "promote-admin": "ts-node src/scripts/promote-admin.ts",
     "create-admin": "ts-node src/scripts/create-admin.ts",
     "test": "echo \"Error: no test specified\" && exit 1"

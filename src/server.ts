@@ -27,25 +27,45 @@ import whatsappRouter from './routes/whatsapp.routes';
 import { CRMScheduler } from './services/crm/scheduler.service';
 import http from 'http';
 import { Server } from 'socket.io';
+import { resolveAccessToken } from './middlewares/auth.middleware';
+import { corsOptions } from './config/cors';
 
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: {
-    origin: '*',
-    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'],
-  }
+  cors: corsOptions,
 });
 
 app.set('io', io);
 
+io.use(async (socket, next) => {
+  try {
+    const authToken = socket.handshake.auth?.['token'];
+    const authorization = socket.handshake.headers.authorization;
+    const bearerToken = authorization?.startsWith('Bearer ')
+      ? authorization.slice('Bearer '.length)
+      : undefined;
+    const token = typeof authToken === 'string' ? authToken : bearerToken;
+    if (!token) throw new Error('Authentication token required');
+
+    socket.data['user'] = await resolveAccessToken(token);
+    next();
+  } catch {
+    next(new Error('Unauthorized'));
+  }
+});
+
 io.on('connection', (socket) => {
   console.log('Socket client connected:', socket.id);
-  
-  socket.on('join_restaurant', (restaurantId) => {
-    socket.join(restaurantId);
-    console.log(`Socket client ${socket.id} joined room ${restaurantId}`);
+
+  const restaurantId = socket.data['user']?.restaurantId as string | undefined;
+  if (restaurantId) socket.join(restaurantId);
+
+  socket.on('join_restaurant', (requestedRestaurantId) => {
+    if (restaurantId && requestedRestaurantId === restaurantId) {
+      socket.join(restaurantId);
+    }
   });
 
   socket.on('disconnect', () => {
@@ -55,7 +75,7 @@ io.on('connection', (socket) => {
 
 const port = process.env.PORT || 5000;
 
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // Auth routes

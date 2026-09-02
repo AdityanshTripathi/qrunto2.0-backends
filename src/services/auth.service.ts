@@ -6,8 +6,14 @@ import { prisma } from '../lib/prisma';
 
 const userRepository = new UserRepository();
 
-const JWT_SECRET = process.env.JWT_SECRET || 'default_jwt_secret_12345';
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'default_jwt_refresh_secret_12345';
+const requireSecret = (name: 'JWT_SECRET' | 'JWT_REFRESH_SECRET'): string => {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} environment variable is required`);
+  return value;
+};
+
+const JWT_SECRET = requireSecret('JWT_SECRET');
+const JWT_REFRESH_SECRET = requireSecret('JWT_REFRESH_SECRET');
 
 export interface AuthTokens {
   accessToken: string;
@@ -213,7 +219,7 @@ export class AuthService {
   async refresh(refreshToken: string): Promise<{ accessToken: string }> {
     try {
       // 1. Verify Refresh Token
-      const decoded = jwt.verify(refreshToken, JWT_REFRESH_SECRET) as { id: string };
+      const decoded = jwt.verify(refreshToken, JWT_REFRESH_SECRET) as unknown as { id: string };
       
       // 2. Find User in User table first
       const user = await userRepository.findById(decoded.id);

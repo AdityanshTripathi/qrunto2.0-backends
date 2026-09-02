@@ -51,10 +51,11 @@ export class OrderService {
       }
 
       // Update status
-      await tx.order.update({
-        where: { id },
+      const update = await tx.order.updateMany({
+        where: { id, restaurantId },
         data: { status: newStatus },
       });
+      if (update.count !== 1) throw new Error('Order not found or unauthorized');
 
       if (newStatus === OrderStatus.PAID) {
         triggerDeduction = true;
@@ -126,13 +127,14 @@ export class OrderService {
       const orderNotes = `${order.notes || ''} [POS Redeemed ${pointsToRedeem} points, ₹${discount} discount]`.trim();
 
       // 3. Update order
-      await tx.order.update({
-        where: { id },
+      const update = await tx.order.updateMany({
+        where: { id, restaurantId },
         data: {
           totalAmount: newTotalAmount,
           notes: orderNotes,
         },
       });
+      if (update.count !== 1) throw new Error('Order not found or unauthorized');
 
       // 4. Deduct points from loyalty account
       const loyaltyService = new LoyaltyService();
@@ -185,10 +187,11 @@ export class OrderService {
       });
 
       // 3. Update Order status to PAID
-      await tx.order.update({
-        where: { id },
+      const update = await tx.order.updateMany({
+        where: { id, restaurantId },
         data: { status: OrderStatus.PAID },
       });
+      if (update.count !== 1) throw new Error('Order not found or unauthorized');
       triggerDeduction = true;
 
       // 4. Earn loyalty points
