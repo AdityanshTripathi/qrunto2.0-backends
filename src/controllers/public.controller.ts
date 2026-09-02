@@ -149,8 +149,12 @@ export class PublicController {
       // Check for existing order
       let existingOrder = null;
       if (existingOrderId) {
-        existingOrder = await prisma.order.findUnique({
-          where: { id: existingOrderId },
+        existingOrder = await prisma.order.findFirst({
+          where: {
+            id: existingOrderId,
+            restaurantId: restaurant.id,
+            tableId: table.id,
+          },
           include: { orderItems: true },
         });
         if (!existingOrder) {
@@ -163,7 +167,11 @@ export class PublicController {
         }
         // Check if there is already a successful payment for this order
         const successfulPayment = await prisma.payment.findFirst({
-          where: { orderId: existingOrderId, status: 'SUCCESS' },
+          where: {
+            orderId: existingOrderId,
+            restaurantId: restaurant.id,
+            status: 'SUCCESS',
+          },
         });
         if (successfulPayment) {
           res.status(400).json({ error: 'Cannot add items to an already paid order' });

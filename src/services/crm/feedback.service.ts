@@ -12,10 +12,27 @@ export class FeedbackService {
     // Verify order exists
     const order = await prisma.order.findUnique({
       where: { id: orderId },
+      include: { restaurant: { select: { brandId: true } } },
     });
 
     if (!order) {
       throw new Error('Order not found');
+    }
+    if (!order.customerId || order.customerId !== customerId) {
+      throw new Error('Order does not belong to this customer');
+    }
+
+    const brandId = order.restaurant.brandId;
+    if (!brandId) {
+      throw new Error('Order is not assigned to a business');
+    }
+
+    const customer = await prisma.customer.findFirst({
+      where: { id: customerId, brandId },
+      select: { id: true },
+    });
+    if (!customer) {
+      throw new Error('Order and customer do not belong to the same business');
     }
 
     // Create feedback
@@ -32,7 +49,7 @@ export class FeedbackService {
     if (rating <= 2) {
       await prisma.complaintTicket.create({
         data: {
-          brandId: order.restaurantId, // Using restaurantId as brand context fallback
+          brandId,
           feedbackId: feedback.id,
           customerId,
           subject: `Critical Review Alert (Order #${order.orderNumber})`,
