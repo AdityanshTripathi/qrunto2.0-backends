@@ -91,6 +91,8 @@ model Restaurant {
   waiters               Waiter[]
   wastageRecords        WastageRecord[]
 
+  @@index([ownerId])
+  @@index([brandId])
   @@map("restaurants")
 }
 
@@ -126,6 +128,7 @@ model Subscription {
   restaurant   Restaurant         @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 
   @@index([restaurantId])
+  @@index([planId])
   @@map("subscriptions")
 }
 
@@ -175,7 +178,7 @@ model Category {
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   menuItems    MenuItem[]
 
-  @@index([restaurantId])
+  @@index([restaurantId, isActive, displayOrder])
   @@map("categories")
 }
 
@@ -201,7 +204,8 @@ model MenuItem {
   orderItems              OrderItem[]
   recipe                  Recipe?
 
-  @@index([restaurantId])
+  @@index([restaurantId, name])
+  @@index([restaurantId, isAvailable, name])
   @@index([categoryId])
   @@map("menu_items")
 }
@@ -282,6 +286,7 @@ model OrderItem {
   order                   Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([orderId])
+  @@index([menuItemId])
   @@map("order_items")
 }
 
@@ -302,9 +307,8 @@ model Payment {
   restaurant        Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   transactions      Transaction[]
 
-  @@index([restaurantId])
+  @@index([restaurantId, status, paidAt])
   @@index([orderId])
-  @@index([restaurantId, paidAt])
   @@map("payments")
 }
 
@@ -402,7 +406,7 @@ model Notification {
   createdAt    DateTime         @default(now()) @map("created_at")
   restaurant   Restaurant?      @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 
-  @@index([restaurantId])
+  @@index([restaurantId, createdAt])
   @@index([isRead])
   @@map("notifications")
 }
@@ -488,7 +492,8 @@ model CustomerRestaurantProfile {
   restaurant       Restaurant   @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 
   @@unique([customerId, restaurantId])
-  @@index([restaurantId])
+  @@index([restaurantId, firstVisit])
+  @@index([restaurantId, lastVisit])
   @@map("customer_restaurant_profiles")
 }
 
@@ -546,6 +551,7 @@ model LoyaltyLedger {
   order            Order?                 @relation(fields: [orderId], references: [id])
 
   @@index([loyaltyAccountId])
+  @@index([orderId])
   @@map("loyalty_ledgers")
 }
 
@@ -581,7 +587,9 @@ model CustomerCoupon {
   customer   Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
   order      Order?    @relation(fields: [orderId], references: [id])
 
-  @@index([customerId])
+  @@index([customerId, couponId, isRedeemed])
+  @@index([couponId])
+  @@index([orderId])
   @@map("customer_coupons")
 }
 
@@ -631,6 +639,7 @@ model Campaign {
   brand           Brand           @relation(fields: [brandId], references: [id], onDelete: Cascade)
   segment         Segment?        @relation(fields: [segmentId], references: [id])
 
+  @@index([brandId, status, scheduledAt])
   @@map("campaigns")
 }
 
@@ -645,6 +654,7 @@ model CampaignLog {
   customer     Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@index([customerId])
+  @@index([campaignId])
   @@map("campaign_logs")
 }
 
@@ -804,7 +814,7 @@ model PurchaseOrder {
   supplier             Supplier            @relation(fields: [supplierId], references: [id])
 
   @@unique([restaurantId, poNumber])
-  @@index([restaurantId])
+  @@index([restaurantId, orderDate])
   @@index([supplierId])
   @@map("purchase_orders")
 }
@@ -821,6 +831,7 @@ model PurchaseOrderItem {
   purchaseOrder PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
   rawMaterial   RawMaterial   @relation(fields: [rawMaterialId], references: [id])
 
+  @@index([poId])
   @@map("purchase_order_items")
 }
 
@@ -839,7 +850,7 @@ model WastageRecord {
   restaurant    Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   user          User          @relation(fields: [userId], references: [id])
 
-  @@index([restaurantId])
+  @@index([restaurantId, wasteDate])
   @@index([rawMaterialId])
   @@map("wastage_records")
 }
@@ -865,6 +876,8 @@ model StockTransfer {
   sourceBranch   Restaurant          @relation("SourceTransfers", fields: [sourceBranchId], references: [id], onDelete: Cascade)
 
   @@unique([brandId, transferNumber])
+  @@index([sourceBranchId, createdAt])
+  @@index([destBranchId, createdAt])
   @@map("stock_transfers")
 }
 
@@ -876,6 +889,7 @@ model StockTransferItem {
   rawMaterial   RawMaterial   @relation(fields: [rawMaterialId], references: [id])
   transfer      StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
 
+  @@index([transferId])
   @@map("stock_transfer_items")
 }
 
@@ -890,7 +904,7 @@ model StockAudit {
   restaurant   Restaurant       @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   user         User             @relation(fields: [userId], references: [id])
 
-  @@index([restaurantId])
+  @@index([restaurantId, auditDate])
   @@map("stock_audits")
 }
 
@@ -905,6 +919,7 @@ model StockAuditItem {
   stockAudit    StockAudit  @relation(fields: [auditId], references: [id], onDelete: Cascade)
   rawMaterial   RawMaterial @relation(fields: [rawMaterialId], references: [id])
 
+  @@index([auditId])
   @@map("stock_audit_items")
 }
 
@@ -924,7 +939,7 @@ model StockLedger {
   restaurant    Restaurant       @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   user          User?            @relation(fields: [userId], references: [id])
 
-  @@index([restaurantId])
+  @@index([restaurantId, actionType, createdAt])
   @@index([rawMaterialId])
   @@map("stock_ledgers")
 }
@@ -1138,8 +1153,7 @@ model MenuViewLog {
   viewedAt     DateTime   @default(now()) @map("viewed_at")
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 
-  @@index([restaurantId])
-  @@index([viewedAt])
+  @@index([restaurantId, viewedAt])
   @@map("menu_view_logs")
 }
 
@@ -1153,8 +1167,8 @@ model CartSession {
   updatedAt    DateTime   @updatedAt @map("updated_at")
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 
-  @@index([restaurantId])
-  @@index([sessionId])
+  @@index([restaurantId, sessionId])
+  @@index([restaurantId, createdAt])
   @@map("cart_sessions")
 }
 

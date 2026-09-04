@@ -51,11 +51,18 @@ export class PublicController {
         return;
       }
 
-      // 1. Fetch restaurant by slug
+      // Restaurant lookup must complete first because its ID scopes all menu data.
       const restaurant = await prisma.restaurant.findUnique({
         where: { slug },
-        include: {
-          settings: true,
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          logoUrl: true,
+          isActive: true,
+          settings: {
+            select: { currency: true, taxPercentage: true },
+          },
         },
       });
 
@@ -64,32 +71,31 @@ export class PublicController {
         return;
       }
 
-      // Log public catalog view
+      // Analytics is best-effort and must not delay or fail the customer response.
       const sessionId = (req.query['sessionId'] as string) || `sess_${Math.random().toString(36).substring(2, 15)}`;
-      try {
-        await prisma.menuViewLog.create({
-          data: {
-            restaurantId: restaurant.id,
-            sessionId,
-          },
-        });
-      } catch (logErr) {
+      void prisma.menuViewLog.create({
+        data: {
+          restaurantId: restaurant.id,
+          sessionId,
+        },
+      }).catch((logErr) => {
         console.error('Failed to log menu view:', logErr);
-      }
-
-      // 2. Fetch active categories ordered by displayOrder
-      const categories = await prisma.category.findMany({
-        where: { restaurantId: restaurant.id, isActive: true },
-        orderBy: { displayOrder: 'asc' },
       });
 
-      // 3. Fetch available menu items with their category
-      const menuItems = await prisma.menuItem.findMany({
-        where: { restaurantId: restaurant.id, isAvailable: true },
-        include: { category: true },
-        orderBy: { name: 'asc' },
-      });
+      const [categories, menuItems] = await Promise.all([
+        prisma.category.findMany({
+          where: { restaurantId: restaurant.id, isActive: true },
+          orderBy: { displayOrder: 'asc' },
+        }),
+        prisma.menuItem.findMany({
+          where: { restaurantId: restaurant.id, isAvailable: true },
+          include: { category: true },
+          orderBy: { name: 'asc' },
+        }),
+      ]);
 
+      // Browsers revalidate with Express' ETag; shared caches keep each slug for 30s.
+      res.set('Cache-Control', 'public, max-age=0, s-maxage=30, must-revalidate');
       res.status(200).json({
         restaurant: {
           id: restaurant.id,

@@ -9,10 +9,51 @@ export class ReportService {
     const todayEnd = new Date();
     todayEnd.setHours(23, 59, 59, 999);
 
-    // 1. Fetch all raw materials
-    const rawMaterials = await prisma.rawMaterial.findMany({
-      where: { restaurantId, status: RawMaterialStatus.ACTIVE },
-    });
+    const [rawMaterials, ledgersToday, receivedPOsToday, wastageToday] = await Promise.all([
+      prisma.rawMaterial.findMany({
+        where: { restaurantId, status: RawMaterialStatus.ACTIVE },
+      }),
+      prisma.stockLedger.findMany({
+        where: {
+          restaurantId,
+          actionType: LedgerActionType.SALE_DEDUCTION,
+          createdAt: {
+            gte: todayStart,
+            lte: todayEnd,
+          },
+        },
+        include: {
+          rawMaterial: {
+            select: { averageCost: true },
+          },
+        },
+      }),
+      prisma.purchaseOrder.findMany({
+        where: {
+          restaurantId,
+          status: 'RECEIVED',
+          receivedDate: {
+            gte: todayStart,
+            lte: todayEnd,
+          },
+        },
+        include: {
+          items: true,
+        },
+      }),
+      prisma.wastageRecord.aggregate({
+        where: {
+          restaurantId,
+          wasteDate: {
+            gte: todayStart,
+            lte: todayEnd,
+          },
+        },
+        _sum: {
+          cost: true,
+        },
+      }),
+    ]);
 
     const totalItems = rawMaterials.length;
     let totalValue = 0;
@@ -21,36 +62,13 @@ export class ReportService {
 
     for (const rm of rawMaterials) {
       totalValue += rm.currentStock * rm.averageCost;
-      if (rm.currentStock <= rm.minimumStockLevel) {
-        lowStockItems++;
-      }
-      if (rm.currentStock <= 0) {
-        outOfStockItems++;
-      }
+      if (rm.currentStock <= rm.minimumStockLevel) lowStockItems++;
+      if (rm.currentStock <= 0) outOfStockItems++;
     }
 
-    // Stock Health Score = (1 - (Low Stock + Out of Stock) / Total Items) * 100
-    const stockHealthScore = totalItems > 0 
+    const stockHealthScore = totalItems > 0
       ? Math.max(0, Math.round((1 - (lowStockItems + outOfStockItems) / totalItems) * 100))
       : 100;
-
-    // 2. Today's Consumption: sum(abs(ledger.quantity) * averageCost) for SALE_DEDUCTION today
-    // Wait, let's fetch ledger entries for SALE_DEDUCTION today
-    const ledgersToday = await prisma.stockLedger.findMany({
-      where: {
-        restaurantId,
-        actionType: LedgerActionType.SALE_DEDUCTION,
-        createdAt: {
-          gte: todayStart,
-          lte: todayEnd,
-        },
-      },
-      include: {
-        rawMaterial: {
-          select: { averageCost: true },
-        },
-      },
-    });
 
     let todayConsumption = 0;
     for (const entry of ledgersToday) {
@@ -58,41 +76,12 @@ export class ReportService {
       todayConsumption += Math.abs(entry.quantity) * avgCost;
     }
 
-    // 3. Today's Purchases: sum(poItem.quantity * poItem.unitPrice) for received POs today
-    const receivedPOsToday = await prisma.purchaseOrder.findMany({
-      where: {
-        restaurantId,
-        status: 'RECEIVED',
-        receivedDate: {
-          gte: todayStart,
-          lte: todayEnd,
-        },
-      },
-      include: {
-        items: true,
-      },
-    });
-
     let todayPurchases = 0;
     for (const po of receivedPOsToday) {
       for (const item of po.items) {
         todayPurchases += item.quantity * item.unitPrice;
       }
     }
-
-    // 4. Today's Wastage: sum(waste.cost) recorded today
-    const wastageToday = await prisma.wastageRecord.aggregate({
-      where: {
-        restaurantId,
-        wasteDate: {
-          gte: todayStart,
-          lte: todayEnd,
-        },
-      },
-      _sum: {
-        cost: true,
-      },
-    });
 
     const todayWastage = wastageToday._sum.cost || 0;
 

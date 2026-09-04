@@ -14,37 +14,81 @@ export class AnalyticsController {
         return;
       }
 
-      // 1. Core KPIs (only include SERVED orders for actual completed revenue)
-      const servedOrders = await prisma.order.findMany({
-        where: { restaurantId, status: 'SERVED' },
-        select: { totalAmount: true },
-      });
-
-      const totalRevenue = servedOrders.reduce((sum, o) => sum + o.totalAmount, 0);
-      const totalOrdersCount = servedOrders.length;
-      const averageOrderValue = totalOrdersCount > 0 ? parseFloat((totalRevenue / totalOrdersCount).toFixed(2)) : 0;
-
-      // 2. Active Tables Count
-      const activeTablesCount = await prisma.restaurantTable.count({
-        where: { restaurantId, isActive: true },
-      });
-
-      // 3. Sales Trend - past 7 days
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
       sevenDaysAgo.setHours(0, 0, 0, 0);
 
-      const recentOrders = await prisma.order.findMany({
-        where: {
-          restaurantId,
-          status: 'SERVED',
-          createdAt: { gte: sevenDaysAgo },
-        },
-        select: { totalAmount: true, createdAt: true },
-        orderBy: { createdAt: 'asc' },
-      });
+      const [
+        servedOrderAggregate,
+        activeTablesCount,
+        recentOrders,
+        orderItemsGrouped,
+        tableOrdersGrouped,
+      ] = await Promise.all([
+        prisma.order.aggregate({
+          where: { restaurantId, status: 'SERVED' },
+          _sum: { totalAmount: true },
+          _count: { id: true },
+          _avg: { totalAmount: true },
+        }),
+        prisma.restaurantTable.count({
+          where: { restaurantId, isActive: true },
+        }),
+        prisma.order.findMany({
+          where: {
+            restaurantId,
+            status: 'SERVED',
+            createdAt: { gte: sevenDaysAgo },
+          },
+          select: { totalAmount: true, createdAt: true },
+          orderBy: { createdAt: 'asc' },
+        }),
+        prisma.orderItem.groupBy({
+          by: ['itemName', 'menuItemId'],
+          where: {
+            order: {
+              restaurantId,
+              status: 'SERVED',
+            },
+          },
+          _sum: {
+            quantity: true,
+            totalPrice: true,
+          },
+          orderBy: {
+            _sum: {
+              quantity: 'desc',
+            },
+          },
+          take: 5,
+        }),
+        prisma.order.groupBy({
+          by: ['tableId'],
+          where: {
+            restaurantId,
+            status: 'SERVED',
+          },
+          _sum: {
+            totalAmount: true,
+          },
+          _count: {
+            id: true,
+          },
+          orderBy: {
+            _sum: {
+              totalAmount: 'desc',
+            },
+          },
+          take: 5,
+        }),
+      ]);
 
-      // Map to past 7 dates
+      const totalRevenue = servedOrderAggregate._sum.totalAmount ?? 0;
+      const totalOrdersCount = servedOrderAggregate._count.id;
+      const averageOrderValue = servedOrderAggregate._avg.totalAmount !== null
+        ? parseFloat(servedOrderAggregate._avg.totalAmount.toFixed(2))
+        : 0;
+
       const dailyTrend: Record<string, { date: string; revenue: number; count: number }> = {};
       for (let i = 6; i >= 0; i--) {
         const d = new Date();
@@ -63,56 +107,12 @@ export class AnalyticsController {
       });
 
       const trendData = Object.values(dailyTrend);
-
-      // 4. Top Selling Items
-      const orderItemsGrouped = await prisma.orderItem.groupBy({
-        by: ['itemName', 'menuItemId'],
-        where: {
-          order: {
-            restaurantId,
-            status: 'SERVED',
-          },
-        },
-        _sum: {
-          quantity: true,
-          totalPrice: true,
-        },
-        orderBy: {
-          _sum: {
-            quantity: 'desc',
-          },
-        },
-        take: 5,
-      });
-
       const topSellingItems = orderItemsGrouped.map((item) => ({
         name: item.itemName,
         quantity: item._sum.quantity ?? 0,
         revenue: item._sum.totalPrice ?? 0,
       }));
 
-      // 5. Table Performance
-      const tableOrdersGrouped = await prisma.order.groupBy({
-        by: ['tableId'],
-        where: {
-          restaurantId,
-          status: 'SERVED',
-        },
-        _sum: {
-          totalAmount: true,
-        },
-        _count: {
-          id: true,
-        },
-        orderBy: {
-          _sum: {
-            totalAmount: 'desc',
-          },
-        },
-        take: 5,
-      });
-
-      // Fetch table numbers for the IDs
       const tableIds = tableOrdersGrouped.map((t) => t.tableId).filter((id): id is string => id !== null);
       const tables = await prisma.restaurantTable.findMany({
         where: { id: { in: tableIds } },
@@ -186,37 +186,103 @@ export class AnalyticsController {
         return agg._sum?.totalAmount || 0;
       };
 
-      const todayRevenue = await getRevenueForRange(todayStart, todayEnd);
-      const yesterdayRevenue = await getRevenueForRange(yesterdayStart, yesterdayEnd);
-      const weeklyRevenue = await getRevenueForRange(weekStart, todayEnd);
-      const monthlyRevenue = await getRevenueForRange(monthStart, todayEnd);
+      const [
+        todayRevenue,
+        yesterdayRevenue,
+        weeklyRevenue,
+        monthlyRevenue,
+        completedOrders,
+        completedAggregate,
+        periodStatusGroups,
+        itemAggregate,
+        refundAggregate,
+        activeOrders,
+        totalTablesCount,
+        profiles,
+      ] = await Promise.all([
+        getRevenueForRange(todayStart, todayEnd),
+        getRevenueForRange(yesterdayStart, yesterdayEnd),
+        getRevenueForRange(weekStart, todayEnd),
+        getRevenueForRange(monthStart, todayEnd),
+        prisma.order.findMany({
+          where: {
+            restaurantId,
+            status: { in: ['SERVED', 'PAID'] },
+            createdAt: { gte: start, lte: end }
+          },
+          select: {
+            id: true,
+            taxAmount: true,
+            tableId: true,
+            customerId: true,
+            createdAt: true,
+            invoice: { select: { discount: true, gst: true } }
+          }
+        }),
+        prisma.order.aggregate({
+          where: {
+            restaurantId,
+            status: { in: ['SERVED', 'PAID'] },
+            createdAt: { gte: start, lte: end }
+          },
+          _sum: { subtotal: true, taxAmount: true },
+          _count: { id: true }
+        }),
+        prisma.order.groupBy({
+          by: ['status'],
+          where: { restaurantId, createdAt: { gte: start, lte: end } },
+          _count: { id: true }
+        }),
+        prisma.orderItem.aggregate({
+          where: {
+            order: {
+              restaurantId,
+              status: { in: ['SERVED', 'PAID'] },
+              createdAt: { gte: start, lte: end }
+            }
+          },
+          _sum: { quantity: true }
+        }),
+        prisma.payment.aggregate({
+          where: {
+            order: {
+              restaurantId,
+              status: { in: ['SERVED', 'PAID'] },
+              createdAt: { gte: start, lte: end }
+            }
+          },
+          _sum: { refundedAmount: true }
+        }),
+        prisma.order.findMany({
+          where: {
+            restaurantId,
+            status: { in: ['NEW', 'ACCEPTED', 'PREPARING', 'READY'] }
+          },
+          select: { tableId: true }
+        }),
+        prisma.restaurantTable.count({
+          where: { restaurantId, isActive: true }
+        }),
+        prisma.customerRestaurantProfile.aggregate({
+          where: { restaurantId },
+          _avg: { ltv: true }
+        })
+      ]);
 
-      // Fetch orders in chosen period
-      const orders = await prisma.order.findMany({
-        where: {
-          restaurantId,
-          createdAt: { gte: start, lte: end }
-        },
-        include: {
-          orderItems: true,
-          payments: true,
-          invoice: true
-        }
-      });
+      const statusCount = (status: string) =>
+        periodStatusGroups.find(group => group.status === status)?._count.id ?? 0;
+      const completedCount = completedAggregate._count.id;
+      const totalOrdersCount = periodStatusGroups.reduce((sum, group) => sum + group._count.id, 0);
+      const cancelledCount = statusCount('CANCELLED');
 
-      const completedOrders = orders.filter(o => o.status === 'SERVED' || o.status === 'PAID');
-      const completedCount = completedOrders.length;
-      const totalOrdersCount = orders.length;
-      const cancelledCount = orders.filter(o => o.status === 'CANCELLED').length;
-
-      const grossSales = completedOrders.reduce((sum, o) => sum + o.subtotal + o.taxAmount, 0);
+      const grossSales = (completedAggregate._sum.subtotal ?? 0) + (completedAggregate._sum.taxAmount ?? 0);
       const discountsGiven = completedOrders.reduce((sum, o) => sum + (o.invoice?.discount || 0), 0);
-      const refundAmount = completedOrders.reduce((sum, o) => sum + o.payments.reduce((pSum, p) => pSum + (p.refundedAmount || 0), 0), 0);
+      const refundAmount = refundAggregate._sum.refundedAmount ?? 0;
       const gstCollected = completedOrders.reduce((sum, o) => sum + (o.invoice?.gst || o.taxAmount || 0), 0);
       const netSales = grossSales - discountsGiven - refundAmount;
 
       const aov = completedCount > 0 ? parseFloat((netSales / completedCount).toFixed(2)) : 0;
-      const totalItems = completedOrders.reduce((sum, o) => sum + o.orderItems.reduce((iSum, i) => iSum + i.quantity, 0), 0);
+      const totalItems = itemAggregate._sum.quantity ?? 0;
       const itemsPerOrder = completedCount > 0 ? parseFloat((totalItems / completedCount).toFixed(2)) : 0;
 
       const uniqueTables = new Set(completedOrders.map(o => o.tableId).filter(Boolean)).size;
@@ -250,19 +316,7 @@ export class AnalyticsController {
       const repeatCustomerRate = customerIdsInPeriod.length > 0 ? parseFloat(((returningCount / customerIdsInPeriod.length) * 100).toFixed(1)) : 0;
 
       // Table Occupancy
-      const activeOrders = await prisma.order.findMany({
-        where: {
-          restaurantId,
-          status: { in: ['NEW', 'ACCEPTED', 'PREPARING', 'READY'] }
-        },
-        select: {
-          tableId: true
-        }
-      });
       const activeTables = new Set(activeOrders.map(o => o.tableId).filter(Boolean)).size;
-      const totalTablesCount = await prisma.restaurantTable.count({
-        where: { restaurantId, isActive: true }
-      });
       const currentOccupancyRate = totalTablesCount > 0 ? parseFloat(((activeTables / totalTablesCount) * 100).toFixed(1)) : 0;
 
       // Peak Occupancy Rate during period
@@ -285,12 +339,6 @@ export class AnalyticsController {
       const peakOccupancyRate = totalTablesCount > 0 ? parseFloat(((maxConcurrentTables / totalTablesCount) * 100).toFixed(1)) : 0;
 
       // Estimated CLV (Lifetime spend of customers in this restaurant)
-      const profiles = await prisma.customerRestaurantProfile.aggregate({
-        where: { restaurantId },
-        _avg: {
-          ltv: true
-        }
-      });
       const clv = profiles._avg?.ltv || 0;
 
       res.status(200).json({
@@ -353,18 +401,34 @@ export class AnalyticsController {
       start.setHours(0, 0, 0, 0);
       end.setHours(23, 59, 59, 999);
 
-      // Fetch completed orders in date range
-      const completedOrders = await prisma.order.findMany({
-        where: {
-          restaurantId,
-          status: { in: ['SERVED', 'PAID'] },
-          createdAt: { gte: start, lte: end }
-        },
-        select: {
-          totalAmount: true,
-          createdAt: true
-        }
-      });
+      const [completedOrders, categoryGroup, menuItemsWithCategory] = await Promise.all([
+        prisma.order.findMany({
+          where: {
+            restaurantId,
+            status: { in: ['SERVED', 'PAID'] },
+            createdAt: { gte: start, lte: end }
+          },
+          select: { totalAmount: true, createdAt: true }
+        }),
+        prisma.orderItem.groupBy({
+          by: ['menuItemId'],
+          where: {
+            order: {
+              restaurantId,
+              status: { in: ['SERVED', 'PAID'] },
+              createdAt: { gte: start, lte: end }
+            }
+          },
+          _sum: { totalPrice: true }
+        }),
+        prisma.menuItem.findMany({
+          where: { restaurantId },
+          select: {
+            id: true,
+            category: { select: { name: true } }
+          }
+        })
+      ]);
 
       // 1. Group Trends dynamically
       const diffMs = end.getTime() - start.getTime();
@@ -478,30 +542,6 @@ export class AnalyticsController {
       if (worstDay.revenue === Infinity) worstDay.revenue = 0;
 
       // 4. Category Revenue
-      const categoryGroup = await prisma.orderItem.groupBy({
-        by: ['menuItemId'],
-        where: {
-          order: {
-            restaurantId,
-            status: { in: ['SERVED', 'PAID'] },
-            createdAt: { gte: start, lte: end }
-          }
-        },
-        _sum: {
-          totalPrice: true
-        }
-      });
-
-      const menuItemsWithCategory = await prisma.menuItem.findMany({
-        where: { restaurantId },
-        select: {
-          id: true,
-          category: {
-            select: { name: true }
-          }
-        }
-      });
-
       const categoryRevenueMap: Record<string, number> = {};
       categoryGroup.forEach(group => {
         if (group.menuItemId) {
@@ -555,20 +595,32 @@ export class AnalyticsController {
       start.setHours(0, 0, 0, 0);
       end.setHours(23, 59, 59, 999);
 
-      // 1. Fetch completed orders in date range with prepStartedAt/servedAt
-      const completedOrders = await prisma.order.findMany({
-        where: {
-          restaurantId,
-          status: { in: ['SERVED', 'PAID'] },
-          createdAt: { gte: start, lte: end }
-        },
-        select: {
-          createdAt: true,
-          updatedAt: true,
-          prepStartedAt: true,
-          servedAt: true
-        }
-      });
+      const [completedOrders, statusGroups, qrViews, cartSessions] = await Promise.all([
+        prisma.order.findMany({
+          where: {
+            restaurantId,
+            status: { in: ['SERVED', 'PAID'] },
+            createdAt: { gte: start, lte: end }
+          },
+          select: {
+            createdAt: true,
+            updatedAt: true,
+            prepStartedAt: true,
+            servedAt: true
+          }
+        }),
+        prisma.order.groupBy({
+          by: ['status'],
+          where: { restaurantId, createdAt: { gte: start, lte: end } },
+          _count: { id: true }
+        }),
+        prisma.menuViewLog.count({
+          where: { restaurantId, viewedAt: { gte: start, lte: end } }
+        }),
+        prisma.cartSession.count({
+          where: { restaurantId, createdAt: { gte: start, lte: end } }
+        })
+      ]);
 
       // Calculate averages in minutes
       let totalPrepTime = 0;
@@ -615,40 +667,18 @@ export class AnalyticsController {
       });
       const kitchenDelayPct = prepCount > 0 ? parseFloat(((kitchenDelays / prepCount) * 100).toFixed(1)) : 5.2;
 
-      // Statuses
-      const allOrders = await prisma.order.findMany({
-        where: {
-          restaurantId,
-          createdAt: { gte: start, lte: end }
-        },
-        select: {
-          status: true
-        }
-      });
-
+      const countStatus = (...values: string[]) => statusGroups
+        .filter(group => values.includes(group.status))
+        .reduce((sum, group) => sum + group._count.id, 0);
+      const ordersPlaced = statusGroups.reduce((sum, group) => sum + group._count.id, 0);
       const statuses = {
-        completed: allOrders.filter(o => o.status === 'SERVED' || o.status === 'PAID').length,
-        cancelled: allOrders.filter(o => o.status === 'CANCELLED').length,
+        completed: countStatus('SERVED', 'PAID'),
+        cancelled: countStatus('CANCELLED'),
         rejected: 0,
-        pending: allOrders.filter(o => o.status === 'NEW' || o.status === 'ACCEPTED' || o.status === 'PREPARING').length
+        pending: countStatus('NEW', 'ACCEPTED', 'PREPARING')
       };
 
       // Conversion funnel
-      const qrViews = await prisma.menuViewLog.count({
-        where: {
-          restaurantId,
-          viewedAt: { gte: start, lte: end }
-        }
-      });
-
-      const cartSessions = await prisma.cartSession.count({
-        where: {
-          restaurantId,
-          createdAt: { gte: start, lte: end }
-        }
-      });
-
-      const ordersPlaced = allOrders.length;
 
       // Adjust counts to make logical sense (funnel flow)
       const adjustedViews = Math.max(qrViews, cartSessions * 1.5, ordersPlaced * 2, 10);
@@ -696,45 +726,47 @@ export class AnalyticsController {
       start.setHours(0, 0, 0, 0);
       end.setHours(23, 59, 59, 999);
 
-      // Fetch completed order items
-      const itemSales = await prisma.orderItem.groupBy({
-        by: ['menuItemId', 'itemName'],
-        where: {
-          order: {
+      const [itemSales, menuItems, recipes, ordersWithItems] = await Promise.all([
+        prisma.orderItem.groupBy({
+          by: ['menuItemId', 'itemName'],
+          where: {
+            order: {
+              restaurantId,
+              status: { in: ['SERVED', 'PAID'] },
+              createdAt: { gte: start, lte: end }
+            }
+          },
+          _sum: { quantity: true, totalPrice: true }
+        }),
+        prisma.menuItem.findMany({
+          where: { restaurantId },
+          select: { id: true, name: true, price: true }
+        }),
+        prisma.recipe.findMany({
+          where: { menuItem: { restaurantId } },
+          select: {
+            menuItemId: true,
+            ingredients: {
+              select: {
+                quantity: true,
+                rawMaterial: {
+                  select: { averageCost: true, purchasePrice: true }
+                }
+              }
+            }
+          }
+        }),
+        prisma.order.findMany({
+          where: {
             restaurantId,
             status: { in: ['SERVED', 'PAID'] },
             createdAt: { gte: start, lte: end }
+          },
+          select: {
+            orderItems: { select: { itemName: true } }
           }
-        },
-        _sum: {
-          quantity: true,
-          totalPrice: true
-        }
-      });
-
-      // Fetch all menu items
-      const menuItems = await prisma.menuItem.findMany({
-        where: { restaurantId },
-        select: {
-          id: true,
-          name: true,
-          price: true
-        }
-      });
-
-      // Fetch recipes
-      const recipes = await prisma.recipe.findMany({
-        where: {
-          menuItem: { restaurantId }
-        },
-        include: {
-          ingredients: {
-            include: {
-              rawMaterial: true
-            }
-          }
-        }
-      });
+        })
+      ]);
 
       const menuPerformance = itemSales.map(sale => {
         const dbItem = menuItems.find(m => m.id === sale.menuItemId);
@@ -773,21 +805,6 @@ export class AnalyticsController {
       }).sort((a, b) => b.sold - a.sold);
 
       // Find bundles (Frequently bought together)
-      const ordersWithItems = await prisma.order.findMany({
-        where: {
-          restaurantId,
-          status: { in: ['SERVED', 'PAID'] },
-          createdAt: { gte: start, lte: end }
-        },
-        select: {
-          orderItems: {
-            select: {
-              itemName: true
-            }
-          }
-        }
-      });
-
       const pairCounts: Record<string, number> = {};
       ordersWithItems.forEach(o => {
         const items = Array.from(new Set(o.orderItems.map(i => i.itemName)));
@@ -836,8 +853,14 @@ export class AnalyticsController {
       // Fetch all customer profiles for this restaurant
       const profiles = await prisma.customerRestaurantProfile.findMany({
         where: { restaurantId },
-        include: {
-          customer: true
+        select: {
+          totalSpend: true,
+          ltv: true,
+          visitFrequency: true,
+          lastVisit: true,
+          customer: {
+            select: { birthday: true, anniversary: true }
+          }
         }
       });
 
@@ -956,51 +979,56 @@ export class AnalyticsController {
       start.setHours(0, 0, 0, 0);
       end.setHours(23, 59, 59, 999);
 
-      // Fetch loyalty points ledger logs
-      const ledgerPoints = await prisma.loyaltyLedger.findMany({
-        where: {
-          loyaltyAccount: {
-            customer: {
-              profiles: {
-                some: { restaurantId }
+      const [ledgerPoints, redemptions, joinedCount, activeCount] = await Promise.all([
+        prisma.loyaltyLedger.groupBy({
+          by: ['transactionType'],
+          where: {
+            loyaltyAccount: {
+              customer: {
+                profiles: { some: { restaurantId } }
               }
-            }
+            },
+            createdAt: { gte: start, lte: end }
           },
-          createdAt: { gte: start, lte: end }
-        },
-        select: {
-          points: true,
-          transactionType: true
-        }
-      });
+          _sum: { points: true }
+        }),
+        prisma.customerCoupon.findMany({
+          where: {
+            order: {
+              restaurantId,
+              createdAt: { gte: start, lte: end }
+            },
+            isRedeemed: true
+          },
+          select: {
+            coupon: { select: { code: true } },
+            order: { select: { totalAmount: true } }
+          }
+        }),
+        prisma.customerRestaurantProfile.count({
+          where: { restaurantId, firstVisit: { gte: start, lte: end } }
+        }),
+        prisma.customerRestaurantProfile.count({
+          where: {
+            restaurantId,
+            lastVisit: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
+          }
+        })
+      ]);
 
       let issued = 0;
       let redeemed = 0;
       ledgerPoints.forEach(item => {
         if (item.transactionType === 'EARN') {
-          issued += item.points;
+          issued += item._sum.points || 0;
         } else if (item.transactionType === 'REDEMPTION') {
-          redeemed += Math.abs(item.points);
+          redeemed += Math.abs(item._sum.points || 0);
         }
       });
 
       const redemptionRate = issued > 0 ? parseFloat(((redeemed / issued) * 100).toFixed(1)) : 0;
 
       // Coupon ROI calculations
-      const redemptions = await prisma.customerCoupon.findMany({
-        where: {
-          order: {
-            restaurantId,
-            createdAt: { gte: start, lte: end }
-          },
-          isRedeemed: true
-        },
-        include: {
-          coupon: true,
-          order: true
-        }
-      });
-
       const couponStats: Record<string, { code: string; redemptions: number; revenueLift: number }> = {};
       redemptions.forEach(r => {
         const code = r.coupon.code;
@@ -1021,21 +1049,6 @@ export class AnalyticsController {
           { code: 'WEEKEND20', redemptions: 5, revenueLift: 3800 }
         );
       }
-
-      // Member registration counts
-      const joinedCount = await prisma.customerRestaurantProfile.count({
-        where: {
-          restaurantId,
-          firstVisit: { gte: start, lte: end }
-        }
-      });
-
-      const activeCount = await prisma.customerRestaurantProfile.count({
-        where: {
-          restaurantId,
-          lastVisit: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
-        }
-      });
 
       res.status(200).json({
         members: {

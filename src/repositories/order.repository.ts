@@ -7,30 +7,71 @@ export type OrderWithDetails = Order & {
   payments: Payment[];
 };
 
+export interface OrderFilters {
+  status?: OrderStatus;
+  date?: Date;
+  startDate?: Date;
+  endDate?: Date;
+}
+
+export interface OrderPagination {
+  cursor?: string;
+  limit: number;
+}
+
+export interface PaginatedOrders {
+  orders: OrderWithDetails[];
+  pagination: {
+    limit: number;
+    nextCursor: string | null;
+    hasMore: boolean;
+  };
+}
+
 export class OrderRepository {
   async findMany(
     restaurantId: string,
-    filters?: { status?: OrderStatus; date?: Date }
-  ): Promise<OrderWithDetails[]> {
+    filters: OrderFilters,
+    pagination: OrderPagination,
+  ): Promise<PaginatedOrders> {
     const where: Record<string, unknown> = { restaurantId };
 
-    if (filters?.status) {
+    if (filters.status) {
       where.status = filters.status;
     }
 
-    if (filters?.date) {
+    if (filters.date) {
       const start = new Date(filters.date);
       start.setHours(0, 0, 0, 0);
       const end = new Date(filters.date);
       end.setHours(23, 59, 59, 999);
       where.createdAt = { gte: start, lte: end };
+    } else if (filters.startDate || filters.endDate) {
+      where.createdAt = {
+        ...(filters.startDate ? { gte: filters.startDate } : {}),
+        ...(filters.endDate ? { lte: filters.endDate } : {}),
+      };
     }
 
-    return prisma.order.findMany({
+    const results = await prisma.order.findMany({
       where,
       include: { table: true, orderItems: true, payments: true },
-      orderBy: { createdAt: 'desc' },
-    }) as Promise<OrderWithDetails[]>;
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: pagination.limit + 1,
+      ...(pagination.cursor ? { cursor: { id: pagination.cursor }, skip: 1 } : {}),
+    }) as OrderWithDetails[];
+
+    const hasMore = results.length > pagination.limit;
+    const orders = hasMore ? results.slice(0, pagination.limit) : results;
+
+    return {
+      orders,
+      pagination: {
+        limit: pagination.limit,
+        nextCursor: hasMore ? orders[orders.length - 1]?.id ?? null : null,
+        hasMore,
+      },
+    };
   }
 
   async findById(id: string, restaurantId: string): Promise<OrderWithDetails | null> {

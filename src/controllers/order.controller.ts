@@ -18,21 +18,41 @@ export class OrderController {
       const restaurantId = req.user.restaurantId;
       if (!restaurantId) { res.status(400).json({ error: 'No restaurant linked to this session' }); return; }
 
-      // Parse query filters
       const statusParam = req.query['status'] as string | undefined;
       const dateParam = req.query['date'] as string | undefined;
+      const startDateParam = req.query['startDate'] as string | undefined;
+      const endDateParam = req.query['endDate'] as string | undefined;
+      const cursor = req.query['cursor'] as string | undefined;
+      const requestedLimit = Number(req.query['limit']);
+      const limit = Number.isInteger(requestedLimit) && requestedLimit > 0
+        ? Math.min(requestedLimit, 100)
+        : 30;
 
-      const filters: { status?: OrderStatus; date?: Date } = {};
+      const filters: { status?: OrderStatus; date?: Date; startDate?: Date; endDate?: Date } = {};
       if (statusParam && Object.values(OrderStatus).includes(statusParam as OrderStatus)) {
         filters.status = statusParam as OrderStatus;
       }
-      if (dateParam) {
-        const parsedDate = new Date(dateParam);
-        if (!isNaN(parsedDate.getTime())) filters.date = parsedDate;
+
+      const addValidDate = (value: string | undefined, key: 'date' | 'startDate' | 'endDate') => {
+        if (!value) return;
+        const parsed = new Date(value);
+        if (!isNaN(parsed.getTime())) filters[key] = parsed;
+      };
+      addValidDate(dateParam, 'date');
+      addValidDate(startDateParam, 'startDate');
+      addValidDate(endDateParam, 'endDate');
+
+      if (cursor && !z.string().uuid().safeParse(cursor).success) {
+        res.status(400).json({ error: 'Invalid pagination cursor' });
+        return;
       }
 
-      const orders = await orderService.getOrders(restaurantId, filters);
-      res.status(200).json({ orders });
+      const result = await orderService.getOrders(
+        restaurantId,
+        filters,
+        cursor ? { cursor, limit } : { limit },
+      );
+      res.status(200).json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

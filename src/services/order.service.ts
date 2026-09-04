@@ -1,4 +1,10 @@
-import { OrderRepository, OrderWithDetails } from '../repositories/order.repository';
+import {
+  OrderFilters,
+  OrderPagination,
+  OrderRepository,
+  OrderWithDetails,
+  PaginatedOrders,
+} from '../repositories/order.repository';
 import { OrderStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { LoyaltyService } from './crm/loyalty.service';
@@ -20,9 +26,10 @@ const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
 export class OrderService {
   async getOrders(
     restaurantId: string,
-    filters?: { status?: OrderStatus; date?: Date }
-  ): Promise<OrderWithDetails[]> {
-    return orderRepository.findMany(restaurantId, filters);
+    filters: OrderFilters,
+    pagination: OrderPagination,
+  ): Promise<PaginatedOrders> {
+    return orderRepository.findMany(restaurantId, filters, pagination);
   }
 
   async getOrderById(id: string, restaurantId: string): Promise<OrderWithDetails | null> {
