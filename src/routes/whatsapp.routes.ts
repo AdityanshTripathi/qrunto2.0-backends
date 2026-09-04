@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { WhatsAppService } from '../services/whatsapp.service';
 
 const router = Router();
@@ -13,12 +13,12 @@ router.get('/', (req: Request, res: Response) => {
     const token = req.query['hub.verify_token'] as string;
     const challenge = req.query['hub.challenge'] as string;
 
-    const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN || 'qrunto_whatsapp_token_2026';
+    const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
 
-    console.log('[WhatsApp Webhook GET] Verification request received:', { mode, token, challenge });
+    console.log('[WhatsApp Webhook GET] Verification request received:', { mode });
 
     if (mode && token) {
-      if (mode === 'subscribe' && token === verifyToken) {
+      if (verifyToken && mode === 'subscribe' && token === verifyToken) {
         console.log('[WhatsApp Webhook] Verification successful!');
         res.type('text/plain').send(challenge);
         return;
@@ -57,11 +57,23 @@ router.post('/', (req: Request, res: Response) => {
   }
 });
 
+const requireSendTestEnabled = (req: Request, res: Response, next: NextFunction): void => {
+  const environmentAllowsTest = ['development', 'test'].includes(process.env.NODE_ENV ?? '');
+  const explicitlyEnabled = process.env.ENABLE_WHATSAPP_SEND_TEST === 'true';
+
+  if (!environmentAllowsTest || !explicitlyEnabled) {
+    res.sendStatus(404);
+    return;
+  }
+
+  next();
+};
+
 /**
  * POST /api/webhook/whatsapp/send-test
  * Trigger a test message to a WhatsApp number
  */
-router.post('/send-test', async (req: Request, res: Response) => {
+router.post('/send-test', requireSendTestEnabled, async (req: Request, res: Response) => {
   try {
     const { phone, message, templateName } = req.body;
     const targetPhone = phone || '917489844089';
@@ -76,14 +88,13 @@ router.post('/send-test', async (req: Request, res: Response) => {
 
     res.status(200).json({
       success: true,
-      message: 'WhatsApp test message sent successfully!',
-      result
+      message: 'WhatsApp test message sent successfully!'
     });
-  } catch (error: any) {
-    console.error('[WhatsApp Test Endpoint Error]:', error);
+  } catch {
+    console.error('[WhatsApp Test Endpoint Error]');
     res.status(500).json({
       success: false,
-      error: error.message || 'Failed to send test message'
+      error: 'Failed to send test message'
     });
   }
 });

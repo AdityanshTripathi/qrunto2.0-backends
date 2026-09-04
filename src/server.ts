@@ -2,6 +2,7 @@
 import 'dotenv/config'; // Loaded env variables
 import express, { Request, Response } from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import authRouter from './routes/auth.routes';
 import planRouter from './routes/plan.routes';
 import subscriptionRouter from './routes/subscription.routes';
@@ -74,7 +75,16 @@ io.on('connection', (socket) => {
 });
 
 const port = process.env.PORT || 5000;
+const isProduction = process.env.NODE_ENV === 'production';
 
+app.use(helmet({
+  contentSecurityPolicy: false,
+  strictTransportSecurity: isProduction
+    ? { maxAge: 31_536_000, includeSubDomains: true }
+    : false,
+  referrerPolicy: { policy: 'no-referrer' },
+  frameguard: { action: 'deny' },
+}));
 app.use(cors(corsOptions));
 app.use(express.json());
 
