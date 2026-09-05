@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma';
+import { logSafeError } from '../../lib/safe-error';
 
 export interface SegmentCriteria {
   minSpend?: number | undefined;
@@ -162,7 +163,7 @@ export class SegmentService {
       try {
         await this.evaluateSegment(segment.id, brandId);
       } catch (err) {
-        console.error(`Failed to evaluate segment ${segment.id}:`, err);
+        logSafeError('segment.evaluate', err);
       }
     }
   }

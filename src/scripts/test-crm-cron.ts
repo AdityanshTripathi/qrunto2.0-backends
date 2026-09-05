@@ -8,6 +8,7 @@ import { SegmentService } from '../services/crm/segment.service';
 import { OccasionService } from '../services/crm/occasion.service';
 import { prisma, pool } from '../lib/prisma';
 import { sharedRedis } from '../lib/redis';
+import { StageError } from '../lib/safe-error';
 
 // Only mocked CRM data: no campaign messages or database writes.
 async function main() {
@@ -71,6 +72,38 @@ async function main() {
   await assert.rejects(CRMScheduler.runCycle(new Date('2026-09-06T00:01:00Z'), store()));
   assert.equal(values.has('crm:scheduler:lock'), false, 'Failure must release lock');
   assert.equal(values.has(`crm:scheduler:campaigns:${Math.floor(Date.parse('2026-09-06T00:01:00Z') / 60000)}`), false);
+
+  const fault = Object.assign(new Error('rediss://user:private-password@host CRON_SECRET=private-token'), { code: 'ECONNRESET' });
+  const checkStage = (stage: string) => (error: unknown) => {
+    assert.ok(error instanceof StageError);
+    assert.equal(error.stage, stage);
+    assert.equal(error.code, 'ECONNRESET');
+    assert.equal(error.message, 'Connection reset');
+    return true;
+  };
+  sharedRedis.commands = async () => { throw fault; };
+  await assert.rejects(CRMScheduler.runCycle(now), checkStage('redis.connect'));
+  sharedRedis.commands = originalCommands;
+  CampaignService.prototype.sendCampaign = async () => {};
+  for (const [method, stage] of [['set', 'redis.lock.acquire'], ['get', 'redis.segments.checkpoint.read'], ['eval', 'redis.lock.release']] as const) {
+    values.clear();
+    const broken = store();
+    (broken as any)[method] = async () => { throw fault; };
+    await assert.rejects(CRMScheduler.runCycle(now, broken), checkStage(stage));
+  }
+  values.clear();
+  const checkpointFailure = store();
+  const set = checkpointFailure.set.bind(checkpointFailure);
+  (checkpointFailure as any).set = async (...args: any[]) => {
+    if (!args[2]?.NX) throw fault;
+    return (set as any)(...args);
+  };
+  await assert.rejects(CRMScheduler.runCycle(now, checkpointFailure), checkStage('redis.segments.checkpoint.write'));
+  values.clear();
+  CampaignService.prototype.sendCampaign = async () => { throw fault; };
+  const cleanupFailure = store();
+  (cleanupFailure as any).eval = async () => { throw new Error('private-cleanup-error'); };
+  await assert.rejects(CRMScheduler.runCycle(now, cleanupFailure), checkStage('jobs.campaigns'));
 
   const originalStart = CRMScheduler.start;
   let starts = 0;

@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma';
+import { logSafeError, safeError } from '../../lib/safe-error';
 import { CampaignChannel, CampaignStatus, CampaignLogStatus } from '@prisma/client';
 
 export interface CreateCampaignInput {
@@ -130,14 +131,14 @@ export class CampaignService {
           });
           sentCount++;
         } catch (err: any) {
-          console.error(`[Campaign Dispatcher] Failed to dispatch to customer ${customer.id}:`, err.message);
+          logSafeError('campaign.customer.dispatch', err);
           
           // Mark log as FAILED
           await prisma.campaignLog.updateMany({
             where: { campaignId, customerId: customer.id },
             data: {
               status: CampaignLogStatus.FAILED,
-              errorDetails: err.message,
+              errorDetails: safeError(err).message,
             },
           });
           failedCount++;
@@ -158,7 +159,7 @@ export class CampaignService {
 
       console.log(`[Campaign Dispatcher] Campaign "${campaign.name}" completed. Sent: ${sentCount}, Failed: ${failedCount}`);
     } catch (err: any) {
-      console.error(`[Campaign Dispatcher] Campaign execution crashed:`, err);
+      logSafeError('campaign.execution', err);
       await prisma.campaign.update({
         where: { id: campaignId },
         data: { status: CampaignStatus.FAILED },

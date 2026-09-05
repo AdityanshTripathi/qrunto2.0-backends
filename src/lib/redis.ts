@@ -1,6 +1,7 @@
 import { createClient, RedisClientOptions } from 'redis';
 import { createAdapter } from '@socket.io/redis-adapter';
 import type { Server } from 'socket.io';
+import { logSafeError, StageError } from './safe-error';
 
 const defaultRedisClient = (options: RedisClientOptions) => createClient(options);
 export type RedisConnection = ReturnType<typeof defaultRedisClient>;
@@ -39,7 +40,7 @@ export class SharedRedis {
         reconnectStrategy: retries => retries < 2 ? 250 * (retries + 1) : false,
       },
     });
-    client.on('error', () => console.error('[Redis] Connection unavailable'));
+    client.on('error', error => logSafeError('redis.connection', error));
     if (subscriber) this.subscriberClient = client;
     else this.commandClient = client;
     return client;
@@ -50,8 +51,8 @@ export class SharedRedis {
     const pending = this.connecting.get(client);
     if (pending) return pending;
     if (client.isOpen) throw new Error('Redis temporarily unavailable');
-    const connecting = client.connect().then(() => client).catch(() => {
-      throw new Error('Redis temporarily unavailable');
+    const connecting = client.connect().then(() => client).catch(error => {
+      throw new StageError('redis.connect', error);
     }).finally(() => this.connecting.delete(client));
     this.connecting.set(client, connecting);
     return connecting;

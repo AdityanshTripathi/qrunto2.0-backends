@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma';
+import { logSafeError } from '../../lib/safe-error';
 
 export interface OccasionCustomer {
   id: string;
@@ -53,7 +54,7 @@ export class OccasionService {
             });
           }
         } catch (err) {
-          console.error(`Failed to check birthday for customer ${customer.id}:`, err);
+          logSafeError('occasion.birthday', err);
         }
       }
 
@@ -85,7 +86,7 @@ export class OccasionService {
             });
           }
         } catch (err) {
-          console.error(`Failed to check anniversary for customer ${customer.id}:`, err);
+          logSafeError('occasion.anniversary', err);
         }
       }
     }

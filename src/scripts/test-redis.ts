@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { createServer } from 'node:http';
 import { Server } from 'socket.io';
+import { createClient } from 'redis';
+import { safeError, StageError } from '../lib/safe-error';
 import { redisUrl, SharedRedis, sharedRedis } from '../lib/redis';
 
 async function main() {
@@ -23,6 +25,8 @@ async function main() {
   let fail = false;
   const clients: Array<EventEmitter & { isReady: boolean; isOpen: boolean }> = [];
   const factory = ((options: any) => {
+    const real = createClient(options);
+    assert.equal(real.options?.socket?.tls, process.env.REDIS_URL?.startsWith('rediss://'));
     created++;
     assert.equal(options.disableOfflineQueue, true);
     assert.equal(options.commandsQueueMaxLength, 1000);
@@ -56,10 +60,15 @@ async function main() {
   assert.equal(await manager.commands(), results[0]);
   clients[0]!.isReady = clients[0]!.isOpen = false;
   fail = true;
-  await assert.rejects(manager.commands(), error => error instanceof Error && error.message === 'Redis temporarily unavailable');
+  await assert.rejects(manager.commands(), error => error instanceof StageError && error.stage === 'redis.connect' && !error.message.includes('private-connection-detail'));
   fail = false;
   assert.equal(await manager.commands(), results[0], 'Reconnect reuses the same client');
   assert.equal(created, 2);
+  process.env.REDIS_URL = 'rediss://default:fake-password@mock:6379';
+  await new SharedRedis(factory).commands();
+  const privateError = Object.assign(new Error('rediss://default:fake-password@mock token=private CRON_SECRET=private'), { code: 'ECONNRESET' });
+  assert.deepEqual(safeError(privateError), { code: 'ECONNRESET', message: 'Connection reset' });
+  assert.equal(safeError(new Error(privateError.message)).code, 'UNKNOWN');
   const path = require.resolve('../lib/redis');
   delete require.cache[path];
   assert.equal(require('../lib/redis').sharedRedis, sharedRedis);

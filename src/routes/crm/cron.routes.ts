@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { timingSafeEqual } from 'node:crypto';
 import { CRMScheduler } from '../../services/crm/scheduler.service';
+import { logSafeError } from '../../lib/safe-error';
 
 const router = Router();
 
@@ -20,8 +21,8 @@ router.get('/', async (req, res) => {
   try {
     const status = await CRMScheduler.runCycle();
     res.status(200).json({ status });
-  } catch {
-    console.error('[CRM Scheduler] Cron cycle failed');
+  } catch (error) {
+    logSafeError('cron.cycle', error);
     res.status(500).json({ error: 'Cron cycle failed' });
   }
 });

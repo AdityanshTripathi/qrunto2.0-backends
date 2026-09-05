@@ -4,6 +4,7 @@ import { CampaignService } from './campaign.service';
 import { OccasionService } from './occasion.service';
 import { sharedRedis, RedisConnection } from '../../lib/redis';
 import { randomUUID } from 'node:crypto';
+import { logSafeError, StageError } from '../../lib/safe-error';
 
 const segmentService = new SegmentService();
 const campaignService = new CampaignService();
@@ -15,11 +16,15 @@ let occasionInterval: NodeJS.Timeout | null = null;
 export class CRMScheduler {
   // One awaited cycle. Redis coordinates separate serverless instances.
   static async runCycle(now = new Date(), suppliedStore?: RedisConnection): Promise<'completed' | 'skipped'> {
-    const store = suppliedStore ?? await sharedRedis.commands();
+    let store: RedisConnection | undefined = suppliedStore;
+    let stage = 'redis.connect';
+    let failed = false;
     const lockKey = 'crm:scheduler:lock';
     const token = randomUUID();
     let locked = false;
     try {
+      store ??= await sharedRedis.commands();
+      stage = 'redis.lock.acquire';
       // Longer than Vercel's configured 300-second invocation limit.
       locked = await store.set(lockKey, token, { NX: true, EX: 600 }) === 'OK';
       if (!locked) return 'skipped';
@@ -33,18 +38,29 @@ export class CRMScheduler {
       for (const job of jobs) {
         const bucket = Math.floor(now.getTime() / (job.period * 1000));
         const key = `crm:scheduler:${job.name}:${bucket}`;
+        stage = `redis.${job.name}.checkpoint.read`;
         if (await store.get(key)) continue;
+        stage = `jobs.${job.name}`;
         await job.run();
+        stage = `redis.${job.name}.checkpoint.write`;
         await store.set(key, 'done', { EX: job.period * 2 });
         ran = true;
       }
       return ran ? 'completed' : 'skipped';
+    } catch (error) {
+      failed = true;
+      throw error instanceof StageError ? error : new StageError(stage, error);
     } finally {
-      if (locked && store.isReady) {
-        await store.eval(
+      if (locked && store) {
+        try {
+          await store.eval(
           'if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end',
           { keys: [lockKey], arguments: [token] },
-        );
+          );
+        } catch (error) {
+          if (failed) logSafeError('redis.lock.release', error);
+          else throw new StageError('redis.lock.release', error);
+        }
       }
     }
   }
