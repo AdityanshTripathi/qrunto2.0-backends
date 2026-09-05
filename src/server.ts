@@ -32,6 +32,7 @@ import { Server } from 'socket.io';
 import { redisUrl, sharedRedis } from './lib/redis';
 import { resolveAccessToken } from './middlewares/auth.middleware';
 import { corsOptions } from './config/cors';
+import { DeductionQueueService } from './services/inventory/deduction-queue.service';
 
 
 const app = express();
@@ -48,6 +49,8 @@ const requiresSharedSocketState = process.env.VERCEL === '1' && process.env.NODE
 export const realtimeReady = sharedRedis.initializeAdapter(io);
 // Observe startup failures even before the first request; subsequent requests can retry.
 void realtimeReady.catch(() => console.error('[Redis] Realtime unavailable'));
+void DeductionQueueService.processPending()
+  .catch(() => console.error('[DeductionQueue] Recovery unavailable'));
 
 // Cron does not depend on the Socket.IO datastore connection becoming ready.
 app.use('/api/internal/cron/crm', cronRouter);

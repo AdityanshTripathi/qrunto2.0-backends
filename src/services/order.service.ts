@@ -93,7 +93,7 @@ export class OrderService {
     });
 
     if (triggerDeduction) {
-      DeductionQueueService.enqueueDeduction(id, restaurantId);
+      await DeductionQueueService.enqueueDeduction(id, restaurantId);
     }
 
     return result;
@@ -221,7 +221,7 @@ export class OrderService {
     });
 
     if (triggerDeduction) {
-      DeductionQueueService.enqueueDeduction(id, restaurantId);
+      await DeductionQueueService.enqueueDeduction(id, restaurantId);
     }
 
     return result;

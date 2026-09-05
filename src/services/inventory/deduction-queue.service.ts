@@ -1,52 +1,53 @@
 import { prisma } from '../../lib/prisma';
 import { LedgerActionType } from '@prisma/client';
-
-interface DeductionJob {
-  orderId: string;
-  restaurantId: string;
-}
+import { redisUrl, sharedRedis } from '../../lib/redis';
+import { safeError } from '../../lib/safe-error';
+import { DeductionJob, DurableDeductionQueue, QueueStore } from './durable-deduction-queue';
 
 export class DeductionQueueService {
-  private static queue: DeductionJob[] = [];
-  private static isProcessing = false;
+  private static durable = new DurableDeductionQueue(
+    async () => await sharedRedis.commands() as unknown as QueueStore,
+    async (job: DeductionJob) => this.deductStockForOrder(job.orderId, job.restaurantId),
+    undefined,
+    async (job, error) => {
+      await prisma.auditLog.create({
+        data: {
+          action: 'INVENTORY_DEDUCTION_FAILED',
+          entityType: 'ORDER',
+          entityId: job.orderId,
+          metadata: { ...safeError(error), restaurantId: job.restaurantId },
+        },
+      });
+    },
+  );
 
-  static enqueueDeduction(orderId: string, restaurantId: string) {
-    this.queue.push({ orderId, restaurantId });
-    console.log(`[DeductionQueue] Enqueued order ${orderId} for restaurant ${restaurantId}. Queue length: ${this.queue.length}`);
-    this.processQueue();
+  static async enqueueDeduction(orderId: string, restaurantId: string): Promise<void> {
+    if (!redisUrl()) {
+      await this.deductWithLocalRetry(orderId, restaurantId);
+      return;
+    }
+    await this.durable.enqueue(orderId, restaurantId);
   }
 
-  private static async processQueue() {
-    if (this.isProcessing) return;
-    this.isProcessing = true;
+  static async processPending(): Promise<void> {
+    if (redisUrl()) await this.durable.drain();
+  }
 
-    while (this.queue.length > 0) {
-      const job = this.queue.shift();
-      if (!job) continue;
-
+  private static async deductWithLocalRetry(orderId: string, restaurantId: string): Promise<void> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        console.log(`[DeductionQueue] Processing order ${job.orderId}...`);
-        await this.deductStockForOrder(job.orderId, job.restaurantId);
-        console.log(`[DeductionQueue] Successfully processed order ${job.orderId}`);
-      } catch (err: any) {
-        console.error(`[DeductionQueue] Failed to process order ${job.orderId}:`, err);
-        // Log to AuditLog for visibility
-        try {
-          await prisma.auditLog.create({
-            data: {
-              action: 'INVENTORY_DEDUCTION_FAILED',
-              entityType: 'ORDER',
-              entityId: job.orderId,
-              metadata: { error: err.message, restaurantId: job.restaurantId },
-            },
-          });
-        } catch (logErr) {
-          console.error('[DeductionQueue] Failed to write audit log:', logErr);
+        await this.deductStockForOrder(orderId, restaurantId);
+        return;
+      } catch (error) {
+        lastError = error;
+        console.error('[DeductionQueue] Local failure', { ...safeError(error), attempt });
+        if (attempt < 3) {
+          await new Promise(resolve => setTimeout(resolve, 250 * (2 ** (attempt - 1))));
         }
       }
     }
-
-    this.isProcessing = false;
+    throw lastError;
   }
 
   private static async deductStockForOrder(orderId: string, restaurantId: string) {

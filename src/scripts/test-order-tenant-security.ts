@@ -5,8 +5,22 @@ import { resolveAccessToken } from '../middlewares/auth.middleware';
 
 type TenantOrder = { id: string; restaurant_id: string };
 
+async function connectForTest() {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      return await pool.connect();
+    } catch (error) {
+      lastError = error;
+      if (attempt < 3) await new Promise(resolve => setTimeout(resolve, 500 * attempt));
+    }
+  }
+  throw lastError;
+}
+
 async function main() {
-  const client = await pool.connect();
+  let client = await connectForTest();
+  let clientReleased = false;
   try {
     await client.query('begin');
 
@@ -48,10 +62,17 @@ async function main() {
       { id: authenticatedUser.id, restaurantId: forgedTenantId, role: 'SUPER_ADMIN' },
       process.env.JWT_SECRET,
     );
+    await client.query('rollback');
+    client.release();
+    clientReleased = true;
     const resolvedUser = await resolveAccessToken(forgedToken);
     if (resolvedUser.restaurantId !== authenticatedUser.restaurant_id) {
       throw new Error('Client-supplied tenant identity was trusted.');
     }
+
+    client = await connectForTest();
+    clientReleased = false;
+    await client.query('begin');
 
     const own = await client.query(
       'select 1 from public.orders where id = $1 and restaurant_id = $2',
@@ -122,8 +143,10 @@ async function main() {
 
     console.log('Order tenant security verified with two existing tenants.');
   } finally {
-    await client.query('rollback').catch(() => undefined);
-    client.release();
+    if (!clientReleased) {
+      await client.query('rollback').catch(() => undefined);
+      client.release();
+    }
     await prisma.$disconnect();
   }
 }
