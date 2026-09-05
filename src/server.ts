@@ -33,6 +33,8 @@ import { redisUrl, sharedRedis } from './lib/redis';
 import { resolveAccessToken } from './middlewares/auth.middleware';
 import { corsOptions } from './config/cors';
 import { DeductionQueueService } from './services/inventory/deduction-queue.service';
+import { checkReadiness } from './services/health.service';
+import { logSafeError, logStructured } from './lib/safe-error';
 
 
 const app = express();
@@ -48,18 +50,20 @@ const requiresSharedSocketState = process.env.VERCEL === '1' && process.env.NODE
 
 export const realtimeReady = sharedRedis.initializeAdapter(io);
 // Observe startup failures even before the first request; subsequent requests can retry.
-void realtimeReady.catch(() => console.error('[Redis] Realtime unavailable'));
+void realtimeReady.catch(error => logSafeError('adapter.startup', error, 'redis'));
 void DeductionQueueService.processPending()
-  .catch(() => console.error('[DeductionQueue] Recovery unavailable'));
+  .catch(error => logSafeError('queue.recovery', error, 'inventory'));
 
 // Cron does not depend on the Socket.IO datastore connection becoming ready.
 app.use('/api/internal/cron/crm', cronRouter);
 
-app.use(async (_req, res, next) => {
+app.use(async (req, res, next) => {
+  if (req.path === '/health' || req.path === '/ready') return next();
   try {
     await sharedRedis.initializeAdapter(io);
     next();
-  } catch {
+  } catch (error) {
+    logSafeError('request.dependency', error, 'redis', { path: req.path });
     res.status(503).json({ error: 'Service temporarily unavailable' });
   }
 });
@@ -85,13 +89,15 @@ io.use(async (socket, next) => {
 });
 
 io.on('connection', (socket) => {
-  console.log('Socket client connected:', socket.id);
+  logStructured('info', 'socket.io', 'connection', 'connected', 'Socket client connected',
+    { socketId: socket.id });
 
   const restaurantId = socket.data['user']?.restaurantId as string | undefined;
   if (restaurantId) socket.join(restaurantId);
 
-  socket.on('disconnect', () => {
-    console.log('Socket client disconnected:', socket.id);
+  socket.on('disconnect', (reason) => {
+    logStructured('info', 'socket.io', 'connection', 'disconnected', 'Socket client disconnected',
+      { socketId: socket.id, reason });
   });
 });
 
@@ -164,13 +170,20 @@ app.use('/api/public', publicRouter);
 app.use('/api/webhook/whatsapp', whatsappRouter);
 
 // Health check endpoint
-app.get('/health', (req: Request, res: Response) => {
-  res.status(200).json({ status: 'OK', message: 'OrderFlow API is running' });
+app.get('/health', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.status(200).json({ status: 'alive' });
+});
+
+app.get('/ready', async (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const readiness = await checkReadiness();
+  res.status(readiness.status === 'healthy' ? 200 : 503).json(readiness);
 });
 
 if (!process.env.VERCEL) {
   server.listen(port, () => {
-    console.log(`Server is running on port ${port}`);
+    logStructured('info', 'api', 'startup', 'ready', 'Server listening', { port });
     CRMScheduler.start();
   });
 }

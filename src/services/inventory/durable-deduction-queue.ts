@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { safeError } from '../../lib/safe-error';
+import { logSafeError } from '../../lib/safe-error';
 
 export interface DeductionJob {
   orderId: string;
@@ -162,11 +162,7 @@ export class DurableDeductionQueue {
   }
 
   private logFailure(stage: string, error: unknown, attempt?: number): void {
-    console.error('[DeductionQueue] Failure', {
-      stage,
-      ...safeError(error),
-      ...(attempt ? { attempt } : {}),
-    });
+    logSafeError(stage, error, 'inventory', attempt ? { attempt } : {});
   }
 
   private async auditTerminalFailure(job: DeductionJob, error: unknown): Promise<void> {

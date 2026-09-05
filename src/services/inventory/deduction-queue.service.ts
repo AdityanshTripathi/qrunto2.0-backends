@@ -1,7 +1,7 @@
 import { prisma } from '../../lib/prisma';
 import { LedgerActionType } from '@prisma/client';
 import { redisUrl, sharedRedis } from '../../lib/redis';
-import { safeError } from '../../lib/safe-error';
+import { logSafeError, logStructured, safeError } from '../../lib/safe-error';
 import { DeductionJob, DurableDeductionQueue, QueueStore } from './durable-deduction-queue';
 
 export class DeductionQueueService {
@@ -41,7 +41,7 @@ export class DeductionQueueService {
         return;
       } catch (error) {
         lastError = error;
-        console.error('[DeductionQueue] Local failure', { ...safeError(error), attempt });
+        logSafeError('deduction.local', error, 'inventory', { attempt, orderId, restaurantId });
         if (attempt < 3) {
           await new Promise(resolve => setTimeout(resolve, 250 * (2 ** (attempt - 1))));
         }
@@ -96,7 +96,8 @@ export class DeductionQueueService {
         });
 
         if (existingLedger) {
-          console.log(`[DeductionQueue] Stock already deducted for order item ${item.id}, skipping.`);
+          logStructured('info', 'inventory', 'deduction.idempotency', 'skipped',
+            'Stock deduction already recorded', { orderId, restaurantId, orderItemId: item.id });
           continue;
         }
 

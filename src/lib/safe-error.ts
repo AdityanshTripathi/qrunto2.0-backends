@@ -37,8 +37,18 @@ export class StageError extends Error {
   }
 }
 
-export function logSafeError(stage: string, error: unknown): void {
-  console.error('[CRM Scheduler] Failure', {
-    stage: error instanceof StageError ? error.stage : stage, ...safeError(error),
+export function logStructured(
+  level: 'info' | 'warn' | 'error', service: string, stage: string,
+  status: string, message: string, context: Record<string, unknown> = {},
+): void {
+  console[level]({ level, service, stage, status, code: 'OK', message, ...context });
+}
+
+export function logSafeError(
+  stage: string, error: unknown, service = 'crm', context: Record<string, unknown> = {},
+): void {
+  console.error({
+    level: 'error', service, stage: error instanceof StageError ? error.stage : stage,
+    status: 'failed', ...safeError(error), ...context,
   });
 }

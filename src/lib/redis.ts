@@ -40,7 +40,7 @@ export class SharedRedis {
         reconnectStrategy: retries => retries < 2 ? 250 * (retries + 1) : false,
       },
     });
-    client.on('error', error => logSafeError('redis.connection', error));
+    client.on('error', error => logSafeError('connection', error, 'redis'));
     if (subscriber) this.subscriberClient = client;
     else this.commandClient = client;
     return client;

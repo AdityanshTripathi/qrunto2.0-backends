@@ -4,7 +4,7 @@ import { CampaignService } from './campaign.service';
 import { OccasionService } from './occasion.service';
 import { sharedRedis, RedisConnection } from '../../lib/redis';
 import { randomUUID } from 'node:crypto';
-import { logSafeError, StageError } from '../../lib/safe-error';
+import { logSafeError, logStructured, StageError } from '../../lib/safe-error';
 
 const segmentService = new SegmentService();
 const campaignService = new CampaignService();
@@ -73,32 +73,32 @@ export class CRMScheduler {
   static start(): void {
     if (!shouldStartLocalScheduler()) return;
     if (schedulerInterval) {
-      console.log('[CRM Scheduler] Background scheduler is already running.');
+      logStructured('info', 'crm', 'scheduler.start', 'skipped', 'Background scheduler already running');
       return;
     }
 
-    console.log('[CRM Scheduler] Initializing background CRM segment evaluator...');
+    logStructured('info', 'crm', 'scheduler.start', 'started', 'Background scheduler initialized');
 
     // Run evaluations once on startup
-    this.runEvaluations().catch(err => console.error('[CRM Scheduler] Startup evaluations failed:', err));
-    campaignService.processQueuedCampaigns().catch(err => console.error('[CRM Scheduler] Startup campaigns failed:', err));
-    occasionService.checkAndSendOccasionMessages().catch(err => console.error('[CRM Scheduler] Startup occasions failed:', err));
+    this.runEvaluations().catch(err => logSafeError('startup.segments', err));
+    campaignService.processQueuedCampaigns().catch(err => logSafeError('startup.campaigns', err));
+    occasionService.checkAndSendOccasionMessages().catch(err => logSafeError('startup.occasions', err));
 
     // Run every 4 hours (4 * 60 * 60 * 1000 ms)
     const intervalMs = 4 * 60 * 60 * 1000;
     schedulerInterval = setInterval(() => {
-      this.runEvaluations().catch(err => console.error('[CRM Scheduler] Interval evaluations failed:', err));
+      this.runEvaluations().catch(err => logSafeError('interval.segments', err));
     }, intervalMs);
 
     // Run campaign scanner every 1 minute (60 * 1000 ms)
     campaignInterval = setInterval(() => {
-      campaignService.processQueuedCampaigns().catch(err => console.error('[CRM Scheduler] Interval campaigns failed:', err));
+      campaignService.processQueuedCampaigns().catch(err => logSafeError('interval.campaigns', err));
     }, 60 * 1000);
 
     // Run occasion checker every 24 hours (24 * 60 * 60 * 1000 ms)
     const occasionIntervalMs = 24 * 60 * 60 * 1000;
     occasionInterval = setInterval(() => {
-      occasionService.checkAndSendOccasionMessages().catch(err => console.error('[CRM Scheduler] Interval occasions failed:', err));
+      occasionService.checkAndSendOccasionMessages().catch(err => logSafeError('interval.occasions', err));
     }, occasionIntervalMs);
   }
 
@@ -116,25 +116,23 @@ export class CRMScheduler {
       clearInterval(occasionInterval);
       occasionInterval = null;
     }
-    console.log('[CRM Scheduler] Background scheduler stopped.');
+    logStructured('info', 'crm', 'scheduler.stop', 'stopped', 'Background scheduler stopped');
   }
 
   // Iterate over brands and trigger evaluation
   private static async runEvaluations(): Promise<void> {
-    console.log('[CRM Scheduler] Running periodic segment evaluations...');
     try {
       const brands = await prisma.brand.findMany({
         select: { id: true, name: true },
       });
 
       for (const brand of brands) {
-        console.log(`[CRM Scheduler] Evaluating segments for Brand: ${brand.name} (${brand.id})`);
         await segmentService.evaluateAllSegmentsForBrand(brand.id);
       }
 
-      console.log('[CRM Scheduler] Segment evaluation batch completed successfully.');
+      logStructured('info', 'crm', 'segments.evaluate', 'completed', 'Segment evaluation completed',
+        { brandCount: brands.length });
     } catch (err) {
-      console.error('[CRM Scheduler] Periodic segment evaluation failed');
       throw err;
     }
   }
