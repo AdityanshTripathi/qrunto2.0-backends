@@ -50,12 +50,39 @@ export class SharedRedis {
     if (client.isReady) return client;
     const pending = this.connecting.get(client);
     if (pending) return pending;
-    if (client.isOpen) throw new Error('Redis temporarily unavailable');
-    const connecting = client.connect().then(() => client).catch(error => {
+    // node-redis owns automatic reconnect while isOpen is true. Share a wait
+    // with concurrent requests instead of failing or calling connect() again.
+    const connecting = (client.isOpen ? this.waitForReconnect(client) : client.connect()).then(() => client).catch(error => {
+      if (error instanceof StageError) throw error;
       throw new StageError('redis.connect', error);
     }).finally(() => this.connecting.delete(client));
     this.connecting.set(client, connecting);
     return connecting;
+  }
+
+  private waitForReconnect(client: RedisConnection): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const finish = (error?: unknown) => {
+        clearTimeout(timer);
+        client.off('ready', onReady);
+        client.off('end', onEnd);
+        client.off('error', onError);
+        if (error) reject(new StageError('redis.reconnect.wait', error));
+        else resolve();
+      };
+      const onReady = () => finish();
+      const onEnd = () => finish(Object.assign(new Error(), { code: 'ECONNRESET' }));
+      // Transient errors are followed by more retries. Only reject once the
+      // client's retry strategy has closed it; the next request can reconnect.
+      const onError = (error: unknown) => { if (!client.isOpen) finish(error); };
+      // Covers three 5-second connection attempts plus retry delays.
+      const timer = setTimeout(() => finish(Object.assign(new Error(), { code: 'ETIMEDOUT' })), 20_000);
+      client.once('ready', onReady);
+      client.once('end', onEnd);
+      client.on('error', onError);
+      if (client.isReady) onReady();
+      else if (!client.isOpen) onEnd();
+    });
   }
 
   async commands(): Promise<RedisConnection> {

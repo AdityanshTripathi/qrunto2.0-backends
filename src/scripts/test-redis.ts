@@ -31,6 +31,8 @@ async function main() {
     assert.equal(options.disableOfflineQueue, true);
     assert.equal(options.commandsQueueMaxLength, 1000);
     assert.equal(options.socket.connectTimeout, 5000);
+    assert.equal(options.socket.reconnectStrategy(0), 250);
+    assert.equal(options.socket.reconnectStrategy(1), 500);
     assert.equal(options.socket.reconnectStrategy(2), false);
     const client = Object.assign(new EventEmitter(), {
       isReady: false, isOpen: false,
@@ -58,6 +60,54 @@ async function main() {
   assert.equal(connections, 2);
   assert.equal(subscriptions, 2, 'Real Socket.IO Redis adapter subscribes only once');
   assert.equal(await manager.commands(), results[0]);
+  const beforeReconnect = connections;
+  const publisher = clients[0]!;
+  const subscriber = clients[1]!;
+  const errorListeners = publisher.listenerCount('error');
+  publisher.isReady = subscriber.isReady = false;
+  const recovering = Promise.all(Array.from({ length: 20 }, () => manager.commands()));
+  const adapterRecovering = manager.initializeAdapter(io);
+  publisher.emit('reconnecting'); // A normal lifecycle event is not an error.
+  publisher.emit('error', Object.assign(new Error(), { code: 'ECONNRESET' }));
+  assert.equal(connections, beforeReconnect, 'Do not connect an open/reconnecting client');
+  publisher.isReady = subscriber.isReady = true;
+  publisher.emit('ready');
+  subscriber.emit('ready');
+  assert.ok((await recovering).every(client => client === results[0]));
+  await adapterRecovering;
+  assert.equal(created, 2, 'Recovery retains at most two clients');
+  assert.equal(subscriptions, 2, 'Recovery must not reinstall the adapter');
+  assert.equal(publisher.listenerCount('error'), errorListeners);
+  assert.equal(publisher.listenerCount('ready'), 0);
+  assert.equal(publisher.listenerCount('end'), 0);
+  publisher.isReady = false;
+  const exhausted = assert.rejects(manager.commands(), error => error instanceof StageError && error.stage === 'redis.reconnect.wait' && error.code === 'ECONNRESET');
+  publisher.isOpen = false;
+  publisher.emit('error', Object.assign(new Error(), { code: 'ECONNRESET' }));
+  await exhausted;
+  assert.equal(await manager.commands(), results[0], 'Terminal reconnect failure can recover on next request');
+  publisher.isReady = false;
+  const ended = assert.rejects(manager.commands(), error => error instanceof StageError && error.stage === 'redis.reconnect.wait');
+  publisher.isOpen = false;
+  publisher.emit('end');
+  await ended;
+  assert.equal(publisher.listenerCount('error'), errorListeners);
+  publisher.isOpen = true;
+  const originalTimeout = global.setTimeout;
+  let expire: (() => void) | undefined;
+  global.setTimeout = ((callback: () => void, delay: number) => {
+    assert.equal(delay, 20_000);
+    expire = callback;
+    return originalTimeout(callback, delay);
+  }) as typeof setTimeout;
+  let timedOut: Promise<unknown>;
+  try { timedOut = manager.commands(); } finally { global.setTimeout = originalTimeout; }
+  const timeoutCheck = assert.rejects(timedOut, error => error instanceof StageError && error.code === 'ETIMEDOUT');
+  expire!();
+  await timeoutCheck;
+  assert.equal(publisher.listenerCount('error'), errorListeners);
+  assert.equal(publisher.listenerCount('ready'), 0);
+  assert.equal(publisher.listenerCount('end'), 0);
   clients[0]!.isReady = clients[0]!.isOpen = false;
   fail = true;
   await assert.rejects(manager.commands(), error => error instanceof StageError && error.stage === 'redis.connect' && !error.message.includes('private-connection-detail'));
@@ -73,7 +123,7 @@ async function main() {
   delete require.cache[path];
   assert.equal(require('../lib/redis').sharedRedis, sharedRedis);
   await io.close();
-  console.log('PASS: env precedence/validation, optional local fallback, required cron config, concurrent reuse, real adapter initialization, bounded retries, sanitized failures, module reload singleton');
+  console.log('PASS: env/TLS, concurrent reuse, adapter initialization, bounded retries, disconnect/reconnect, terminal recovery, listener cleanup, two-client limit, sanitized failures, module reload singleton');
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1; });
