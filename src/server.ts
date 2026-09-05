@@ -87,12 +87,6 @@ io.on('connection', (socket) => {
   const restaurantId = socket.data['user']?.restaurantId as string | undefined;
   if (restaurantId) socket.join(restaurantId);
 
-  socket.on('join_restaurant', (requestedRestaurantId) => {
-    if (restaurantId && requestedRestaurantId === restaurantId) {
-      socket.join(restaurantId);
-    }
-  });
-
   socket.on('disconnect', () => {
     console.log('Socket client disconnected:', socket.id);
   });

@@ -2,7 +2,7 @@ import 'dotenv/config';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { once } from 'node:events';
-import { CRMScheduler } from '../services/crm/scheduler.service';
+import { CRMScheduler, shouldStartLocalScheduler } from '../services/crm/scheduler.service';
 import { CampaignService } from '../services/crm/campaign.service';
 import { SegmentService } from '../services/crm/segment.service';
 import { OccasionService } from '../services/crm/occasion.service';
@@ -16,6 +16,9 @@ async function main() {
   delete process.env.REDIS_URL;
   delete process.env.SOCKET_REDIS_URL;
   process.env.CRON_SECRET = 'test-only-cron-secret';
+  assert.equal(shouldStartLocalScheduler({}), false);
+  assert.equal(shouldStartLocalScheduler({ ENABLE_LOCAL_CRM_SCHEDULER: 'true' }), true);
+  assert.equal(shouldStartLocalScheduler({ VERCEL: '1', ENABLE_LOCAL_CRM_SCHEDULER: 'true' }), false);
   const config = JSON.parse(readFileSync('vercel.json', 'utf8'));
   assert.equal(config.crons, undefined, 'External scheduler replaces Vercel Cron on Hobby');
   assert.equal(config.functions['api/index.ts'].maxDuration, 300);

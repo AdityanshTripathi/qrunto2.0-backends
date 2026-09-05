@@ -13,6 +13,10 @@ let schedulerInterval: NodeJS.Timeout | null = null;
 let campaignInterval: NodeJS.Timeout | null = null;
 let occasionInterval: NodeJS.Timeout | null = null;
 
+export function shouldStartLocalScheduler(env: NodeJS.ProcessEnv = process.env): boolean {
+  return !env.VERCEL && env.ENABLE_LOCAL_CRM_SCHEDULER === 'true';
+}
+
 export class CRMScheduler {
   // One awaited cycle. Redis coordinates separate serverless instances.
   static async runCycle(now = new Date(), suppliedStore?: RedisConnection): Promise<'completed' | 'skipped'> {
@@ -67,7 +71,7 @@ export class CRMScheduler {
 
   // Start the background evaluation job
   static start(): void {
-    if (process.env.VERCEL) return;
+    if (!shouldStartLocalScheduler()) return;
     if (schedulerInterval) {
       console.log('[CRM Scheduler] Background scheduler is already running.');
       return;
