@@ -1,6 +1,9 @@
 {
   "version": 2,
   "regions": ["sin1"],
+  "functions": {
+    "api/index.ts": { "maxDuration": 300 }
+  },
   "rewrites": [
     {
       "source": "/(.*)",

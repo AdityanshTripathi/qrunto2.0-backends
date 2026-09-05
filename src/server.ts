@@ -26,8 +26,10 @@ import feedbackRouter from './routes/crm/feedback.routes';
 import aiGatewayRouter from './routes/crm/ai-gateway.routes';
 import whatsappRouter from './routes/whatsapp.routes';
 import { CRMScheduler } from './services/crm/scheduler.service';
+import cronRouter from './routes/crm/cron.routes';
 import http from 'http';
 import { Server } from 'socket.io';
+import { redisUrl, sharedRedis } from './lib/redis';
 import { resolveAccessToken } from './middlewares/auth.middleware';
 import { corsOptions } from './config/cors';
 
@@ -36,12 +38,34 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: corsOptions,
+  path: '/socket.io',
 });
 
 app.set('io', io);
 
+const requiresSharedSocketState = process.env.VERCEL === '1' && process.env.NODE_ENV === 'production';
+
+export const realtimeReady = sharedRedis.initializeAdapter(io);
+// Observe startup failures even before the first request; subsequent requests can retry.
+void realtimeReady.catch(() => console.error('[Redis] Realtime unavailable'));
+
+// Cron does not depend on the Socket.IO datastore connection becoming ready.
+app.use('/api/internal/cron/crm', cronRouter);
+
+app.use(async (_req, res, next) => {
+  try {
+    await sharedRedis.initializeAdapter(io);
+    next();
+  } catch {
+    res.status(503).json({ error: 'Service temporarily unavailable' });
+  }
+});
+
 io.use(async (socket, next) => {
   try {
+    await sharedRedis.initializeAdapter(io);
+    if (requiresSharedSocketState && !redisUrl()) throw new Error('Realtime unavailable');
+
     const authToken = socket.handshake.auth?.['token'];
     const authorization = socket.handshake.headers.authorization;
     const bearerToken = authorization?.startsWith('Bearer ')
@@ -155,3 +179,4 @@ if (!process.env.VERCEL) {
 }
 
 export default app;
+export { app, server, io };

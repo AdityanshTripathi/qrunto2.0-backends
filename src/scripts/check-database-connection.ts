@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import assert from 'node:assert/strict';
 import { pool, prisma } from '../lib/prisma';
 
 type ConnectionCheck = {
@@ -49,6 +50,35 @@ async function main() {
 
   console.log('TLS: enabled');
   console.log(`Public tables: ${result.public_tables}`);
+
+  await prisma.subscriptionPlan.findFirst({ select: { id: true } });
+  await prisma.$transaction(async (tx) => {
+    await tx.subscriptionPlan.findFirst({ select: { id: true } });
+  });
+  console.log('Prisma model query and transaction: passed');
+
+  let peakConnections = pool.totalCount;
+  const trackConnections = () => {
+    peakConnections = Math.max(peakConnections, pool.totalCount);
+  };
+  pool.on('connect', trackConnections);
+  try {
+    await Promise.all(Array.from({ length: 20 }, async (_, index) => {
+      if (index % 2 === 0) {
+        const rows = await prisma.$queryRaw<Array<{ ok: number }>>`SELECT 1 AS ok`;
+        assert.equal(rows[0]?.ok, 1);
+      } else {
+        const rows = await pool.query('SELECT 1 AS ok');
+        assert.equal(rows.rows[0]?.ok, 1);
+      }
+      trackConnections();
+    }));
+    assert.ok(peakConnections <= 1, `Pool exceeded limit: ${peakConnections}`);
+    assert.equal(pool.waitingCount, 0);
+    console.log(`20 concurrent DB operations: passed; peak connections=${peakConnections}`);
+  } finally {
+    pool.off('connect', trackConnections);
+  }
 }
 
 main()
@@ -59,4 +89,5 @@ main()
   })
   .finally(async () => {
     await prisma.$disconnect();
+    await pool.end();
   });

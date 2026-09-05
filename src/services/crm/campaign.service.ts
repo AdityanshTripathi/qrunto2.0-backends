@@ -177,10 +177,8 @@ export class CampaignService {
     });
 
     for (const campaign of queuedCampaigns) {
-      // Process asynchronously
-      this.sendCampaign(campaign.id, campaign.brandId).catch((err) => {
-        console.error(`[Campaign Scheduler] Async dispatch failed for ${campaign.id}:`, err);
-      });
+      // Keep dispatch inside the scheduler invocation's lifetime.
+      await this.sendCampaign(campaign.id, campaign.brandId);
     }
   }
 
