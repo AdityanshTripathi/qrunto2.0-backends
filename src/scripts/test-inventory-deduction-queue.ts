@@ -17,6 +17,12 @@ class FakeStore implements QueueStore {
       await this.rPush(options.keys[1]!, options.arguments[0]!);
       return 1;
     }
+    if (script.includes('inventory-dead-letter')) {
+      this.strings.set(options.keys[0]!, 'failed');
+      await this.rPush(options.keys[1]!, options.arguments[0]!);
+      await this.lRem(options.keys[2]!, 1, options.arguments[1]!);
+      return 1;
+    }
     if (this.strings.get(options.keys[0]!) === options.arguments[0]) {
       this.strings.delete(options.keys[0]!);
       return 1;
@@ -36,6 +42,12 @@ class FakeStore implements QueueStore {
     return raw;
   }
   async rPush(key: string, value: string): Promise<number> { return this.list(key).push(value); }
+  async lLen(key: string): Promise<number> { return this.list(key).length; }
+  async incr(key: string): Promise<number> {
+    const value = Number(this.strings.get(key) || 0) + 1;
+    this.strings.set(key, String(value));
+    return value;
+  }
   async lRem(key: string, count: number, value: string): Promise<number> {
     const list = this.list(key);
     const index = list.indexOf(value);
@@ -142,6 +154,21 @@ async function transientRetry(): Promise<void> {
   assert.equal(await store.get(key('r1', 'o2')), 'done');
 }
 
+async function deadLetterAndMonitoring(): Promise<void> {
+  const store = new FakeStore();
+  const queue = new DurableDeductionQueue(async () => store, async () => {
+    throw new Error('permanent test failure');
+  }, options);
+  await queue.enqueue('o-dead', 'r1');
+  for (const delay of [0, 2, 3]) {
+    if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+    await queue.drain();
+  }
+  assert.deepEqual(await queue.getStatus(), {
+    ready: 0, processing: 0, deadLetter: 1, success: 0, failures: 3, retries: 2,
+  });
+}
+
 async function restartRecovery(): Promise<void> {
   const store = new FakeStore();
   let calls = 0;
@@ -176,12 +203,13 @@ async function main(): Promise<void> {
   await exactlyOnceDeduction();
   await successAndDuplicate();
   await transientRetry();
+  await deadLetterAndMonitoring();
   await restartRecovery();
   await multiWorkerContention();
   console.log('Inventory durable queue tests passed');
 }
 
 void main().catch((error: unknown) => {
-  console.error('Inventory durable queue tests failed:', error instanceof Error ? error.message : 'unknown');
+  console.error('Inventory durable queue tests failed:', error instanceof Error ? error.stack : 'unknown');
   process.exitCode = 1;
 });

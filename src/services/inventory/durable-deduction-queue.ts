@@ -15,11 +15,18 @@ export interface QueueStore {
   lMove(source: string, destination: string, sourceDirection: 'LEFT' | 'RIGHT', destinationDirection: 'LEFT' | 'RIGHT'): Promise<string | null>;
   rPush(key: string, value: string): Promise<number>;
   lRem(key: string, count: number, value: string): Promise<number>;
+  lLen(key: string): Promise<number>;
+  incr(key: string): Promise<number>;
 }
 
 const READY = 'inventory:deduction:ready';
 const PROCESSING = 'inventory:deduction:processing';
 const DEAD = 'inventory:deduction:dead';
+const METRICS = {
+  success: 'inventory:deduction:metrics:success',
+  failure: 'inventory:deduction:metrics:failure',
+  retry: 'inventory:deduction:metrics:retry',
+};
 
 const ENQUEUE_SCRIPT = [
   '-- inventory-enqueue',
@@ -32,6 +39,13 @@ const RELEASE_SCRIPT = [
   '-- inventory-lock-release',
   'if redis.call(\'get\', KEYS[1]) == ARGV[1] then return redis.call(\'del\', KEYS[1]) end',
   'return 0',
+].join('\n');
+const DEAD_SCRIPT = [
+  '-- inventory-dead-letter',
+  'redis.call(\'set\', KEYS[1], \'failed\', \'EX\', ARGV[3])',
+  'redis.call(\'rpush\', KEYS[2], ARGV[1])',
+  'redis.call(\'lrem\', KEYS[3], 1, ARGV[2])',
+  'return 1',
 ].join('\n');
 
 export class DurableDeductionQueue {
@@ -77,6 +91,21 @@ export class DurableDeductionQueue {
     }
   }
 
+  async getStatus(): Promise<{
+    ready: number; processing: number; deadLetter: number;
+    success: number; failures: number; retries: number;
+  }> {
+    const store = await this.store();
+    const [ready, processing, deadLetter, success, failures, retries] = await Promise.all([
+      store.lLen(READY), store.lLen(PROCESSING), store.lLen(DEAD),
+      store.get(METRICS.success), store.get(METRICS.failure), store.get(METRICS.retry),
+    ]);
+    return {
+      ready, processing, deadLetter, success: Number(success || 0),
+      failures: Number(failures || 0), retries: Number(retries || 0),
+    };
+  }
+
   private async recover(store: QueueStore): Promise<void> {
     for (let count = 0; count < this.options.batchSize; count++) {
       const raw = await store.lMove(PROCESSING, READY, 'LEFT', 'RIGHT');
@@ -118,19 +147,25 @@ export class DurableDeductionQueue {
       await this.handler(job);
       await store.set(this.jobKey(job), 'done', { EX: 30 * 24 * 60 * 60 });
       await store.lRem(PROCESSING, 1, raw);
+      await this.metric(store, METRICS.success);
     } catch (error) {
       const attempts = job.attempts + 1;
-      this.logFailure('inventory.deduction', error, attempts);
+      await this.metric(store, METRICS.failure);
       if (attempts >= this.options.maxAttempts) {
-        await store.set(this.jobKey(job), 'failed', { EX: 7 * 24 * 60 * 60 });
-        await store.rPush(DEAD, JSON.stringify({ ...job, attempts }));
-        await store.lRem(PROCESSING, 1, raw);
+        this.logFailure('inventory.deduction.dead-letter', error, attempts, job);
+        await store.eval(DEAD_SCRIPT, {
+          keys: [this.jobKey(job), DEAD, PROCESSING],
+          arguments: [JSON.stringify({ ...job, attempts }), raw, String(7 * 24 * 60 * 60)],
+        });
         await this.auditTerminalFailure(job, error);
       } else {
+        this.logFailure('inventory.deduction.retry', error, attempts, job);
+        await this.metric(store, METRICS.retry);
         const retryDelay = this.backoff(attempts);
         const retry = { ...job, attempts, notBefore: Date.now() + retryDelay };
         await this.requeue(store, raw, JSON.stringify(retry));
         this.schedule(retryDelay);
+        return false;
       }
     } finally {
       await store.eval(RELEASE_SCRIPT, { keys: [lockKey], arguments: [token] });
@@ -161,8 +196,21 @@ export class DurableDeductionQueue {
     this.retryTimer.unref?.();
   }
 
-  private logFailure(stage: string, error: unknown, attempt?: number): void {
-    logSafeError(stage, error, 'inventory', attempt ? { attempt } : {});
+  private logFailure(stage: string, error: unknown, attempt?: number, job?: DeductionJob): void {
+    logSafeError(stage, error, 'inventory', {
+      status: stage.endsWith('.retry') ? 'retrying'
+        : stage.endsWith('.dead-letter') ? 'dead-letter' : 'failed',
+      ...(attempt ? { attempt } : {}),
+      ...(job ? { orderId: job.orderId, restaurantId: job.restaurantId } : {}),
+    });
+  }
+
+  private async metric(store: QueueStore, key: string): Promise<void> {
+    try {
+      await store.incr(key);
+    } catch (error) {
+      this.logFailure('inventory.queue.metrics', error);
+    }
   }
 
   private async auditTerminalFailure(job: DeductionJob, error: unknown): Promise<void> {

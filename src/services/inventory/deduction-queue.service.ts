@@ -33,6 +33,16 @@ export class DeductionQueueService {
     if (redisUrl()) await this.durable.drain();
   }
 
+  static async getStatus(): Promise<{
+    ready: number; processing: number; deadLetter: number;
+    success: number; failures: number; retries: number;
+  }> {
+    if (!redisUrl()) return {
+      ready: 0, processing: 0, deadLetter: 0, success: 0, failures: 0, retries: 0,
+    };
+    return this.durable.getStatus();
+  }
+
   private static async deductWithLocalRetry(orderId: string, restaurantId: string): Promise<void> {
     let lastError: unknown;
     for (let attempt = 1; attempt <= 3; attempt++) {

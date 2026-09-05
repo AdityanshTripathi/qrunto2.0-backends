@@ -4,7 +4,7 @@ import { CampaignService } from './campaign.service';
 import { OccasionService } from './occasion.service';
 import { sharedRedis, RedisConnection } from '../../lib/redis';
 import { randomUUID } from 'node:crypto';
-import { logSafeError, logStructured, StageError } from '../../lib/safe-error';
+import { logSafeError, logStructured, safeError, StageError } from '../../lib/safe-error';
 
 const segmentService = new SegmentService();
 const campaignService = new CampaignService();
@@ -12,12 +12,45 @@ const occasionService = new OccasionService();
 let schedulerInterval: NodeJS.Timeout | null = null;
 let campaignInterval: NodeJS.Timeout | null = null;
 let occasionInterval: NodeJS.Timeout | null = null;
+const MAX_ATTEMPTS = 3;
+const FAILURE_STATE_TTL = 7 * 24 * 60 * 60;
+const DEAD_LETTER = 'crm:scheduler:dead';
+const METRICS = {
+  success: 'crm:scheduler:metrics:success',
+  failure: 'crm:scheduler:metrics:failure',
+  retry: 'crm:scheduler:metrics:retry',
+};
+const permanentCodes = new Set([
+  'P1000', 'P2021', 'P2022', 'WRONGPASS', 'NOAUTH', 'NOPERM',
+  'REDIS_CONFIG_MISSING', 'REDIS_CONFIG_INVALID',
+]);
+const DEAD_SCRIPT = [
+  '-- crm-dead-letter',
+  'redis.call(set, KEYS[1], failed, EX, ARGV[1])',
+  'redis.call(rpush, KEYS[2], ARGV[2])',
+  'redis.call(del, KEYS[3], KEYS[4])',
+  'return 1',
+].join('\n');
 
 export function shouldStartLocalScheduler(env: NodeJS.ProcessEnv = process.env): boolean {
   return !env.VERCEL && env.ENABLE_LOCAL_CRM_SCHEDULER === 'true';
 }
 
 export class CRMScheduler {
+  static async getStatus(suppliedStore?: RedisConnection): Promise<{
+    running: boolean; success: number; failures: number; retries: number; deadLetter: number;
+  }> {
+    const store = suppliedStore ?? await sharedRedis.commands();
+    const [lock, success, failures, retries, deadLetter] = await Promise.all([
+      store.get('crm:scheduler:lock'), store.get(METRICS.success),
+      store.get(METRICS.failure), store.get(METRICS.retry), store.lLen(DEAD_LETTER),
+    ]);
+    return {
+      running: Boolean(lock), success: Number(success || 0), failures: Number(failures || 0),
+      retries: Number(retries || 0), deadLetter,
+    };
+  }
+
   // One awaited cycle. Redis coordinates separate serverless instances.
   static async runCycle(now = new Date(), suppliedStore?: RedisConnection): Promise<'completed' | 'skipped'> {
     let store: RedisConnection | undefined = suppliedStore;
@@ -41,14 +74,8 @@ export class CRMScheduler {
       let ran = false;
       for (const job of jobs) {
         const bucket = Math.floor(now.getTime() / (job.period * 1000));
-        const key = `crm:scheduler:${job.name}:${bucket}`;
-        stage = `redis.${job.name}.checkpoint.read`;
-        if (await store.get(key)) continue;
         stage = `jobs.${job.name}`;
-        await job.run();
-        stage = `redis.${job.name}.checkpoint.write`;
-        await store.set(key, 'done', { EX: job.period * 2 });
-        ran = true;
+        if (await this.runJob(store, job, bucket)) ran = true;
       }
       return ran ? 'completed' : 'skipped';
     } catch (error) {
@@ -66,6 +93,85 @@ export class CRMScheduler {
           else throw new StageError('redis.lock.release', error);
         }
       }
+    }
+  }
+
+  private static async redis<T>(stage: string, action: () => Promise<T>): Promise<T> {
+    try {
+      return await action();
+    } catch (error) {
+      throw error instanceof StageError ? error : new StageError(stage, error);
+    }
+  }
+
+  private static async runJob(
+    store: RedisConnection,
+    job: { name: string; period: number; run: () => Promise<unknown> },
+    bucket: number,
+  ): Promise<boolean> {
+    const prefix = `crm:scheduler:${job.name}:${bucket}`;
+    const checkpoint = prefix;
+    const attemptsKey = `crm:scheduler:${job.name}:attempts`;
+    const retryAtKey = `crm:scheduler:${job.name}:retry-at`;
+    const failedKey = `${prefix}:failed`;
+    const readStage = `redis.${job.name}.checkpoint.read`;
+    if (await this.redis(readStage, () => store.get(checkpoint))
+      || await this.redis(readStage, () => store.get(failedKey))) return false;
+    const retryAt = Number(await this.redis(`redis.${job.name}.retry.read`,
+      () => store.get(retryAtKey)) || 0);
+    if (retryAt > Date.now()) return false;
+
+    try {
+      await job.run();
+    } catch (error) {
+      await this.recordFailure(store, job, bucket, error, attemptsKey, retryAtKey, failedKey);
+      throw error;
+    }
+    await this.redis(`redis.${job.name}.checkpoint.write`,
+      () => store.set(checkpoint, 'done', { EX: job.period * 2 }));
+    await store.del([attemptsKey, retryAtKey]);
+    await this.metric(store, METRICS.success);
+    return true;
+  }
+
+  private static async recordFailure(
+    store: RedisConnection,
+    job: { name: string; period: number }, bucket: number, error: unknown,
+    attemptsKey: string, retryAtKey: string, failedKey: string,
+  ): Promise<void> {
+    const failure = safeError(error);
+    const permanent = permanentCodes.has(failure.code);
+    const attempts = permanent ? MAX_ATTEMPTS : await store.incr(attemptsKey);
+    await this.metric(store, METRICS.failure);
+    if (!permanent) await store.expire(attemptsKey, FAILURE_STATE_TTL);
+
+    if (attempts >= MAX_ATTEMPTS) {
+      const dead = JSON.stringify({
+        job: job.name, bucket, attempts, code: failure.code, failedAt: Date.now(),
+      });
+      await store.eval(DEAD_SCRIPT, {
+        keys: [failedKey, DEAD_LETTER, attemptsKey, retryAtKey],
+        arguments: [String(FAILURE_STATE_TTL), dead],
+      });
+      logSafeError(`jobs.${job.name}.dead-letter`, error, 'crm', {
+        status: 'dead-letter', job: job.name, attempt: attempts,
+      });
+      return;
+    }
+
+    const delayMs = 1_000 * (2 ** (attempts - 1));
+    await store.set(retryAtKey, String(Date.now() + delayMs), { EX: FAILURE_STATE_TTL });
+    await this.metric(store, METRICS.retry);
+    logSafeError(`jobs.${job.name}.retry`, error, 'crm', {
+      status: 'retrying', job: job.name, attempt: attempts, retryInMs: delayMs,
+    });
+  }
+
+  private static async metric(store: RedisConnection, key: string): Promise<void> {
+    try {
+      await store.incr(key);
+    } catch (error) {
+      logSafeError('scheduler.metrics', error, 'crm');
     }
   }
 

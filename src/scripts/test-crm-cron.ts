@@ -9,6 +9,7 @@ import { OccasionService } from '../services/crm/occasion.service';
 import { prisma, pool } from '../lib/prisma';
 import { sharedRedis } from '../lib/redis';
 import { StageError } from '../lib/safe-error';
+import { DeductionQueueService } from '../services/inventory/deduction-queue.service';
 
 // Only mocked CRM data: no campaign messages or database writes.
 async function main() {
@@ -25,17 +26,44 @@ async function main() {
   assert.equal(config.rewrites[0].destination, '/api/index.ts');
 
   const values = new Map<string, string>();
+  const lists = new Map<string, string[]>();
   function store() {
     return {
       isReady: true, isOpen: true,
       on() {}, async connect() {}, destroy() {},
       async get(key: string) { return values.get(key) ?? null; },
+      async incr(key: string) {
+        const value = Number(values.get(key) || 0) + 1;
+        values.set(key, String(value));
+        return value;
+      },
+      async expire() { return true; },
+      async del(keys: string | string[]) {
+        const all = Array.isArray(keys) ? keys : [keys];
+        all.forEach(key => values.delete(key));
+        return all.length;
+      },
+      async rPush(key: string, value: string) {
+        const list = lists.get(key) ?? [];
+        lists.set(key, list);
+        return list.push(value);
+      },
+      async lLen(key: string) { return lists.get(key)?.length ?? 0; },
       async set(key: string, value: string, options: { NX?: boolean }) {
         if (options.NX && values.has(key)) return null;
         values.set(key, value);
         return 'OK';
       },
-      async eval(_script: string, options: { keys: string[]; arguments: string[] }) {
+      async eval(script: string, options: { keys: string[]; arguments: string[] }) {
+        if (script.includes('crm-dead-letter')) {
+          values.set(options.keys[0]!, 'failed');
+          const list = lists.get(options.keys[1]!) ?? [];
+          lists.set(options.keys[1]!, list);
+          list.push(options.arguments[1]!);
+          values.delete(options.keys[2]!);
+          values.delete(options.keys[3]!);
+          return 1;
+        }
         const key = options.keys[0]!;
         if (values.get(key) === options.arguments[0]) values.delete(key);
       },
@@ -74,7 +102,35 @@ async function main() {
   CampaignService.prototype.sendCampaign = async () => { throw new Error('internal-test-detail'); };
   await assert.rejects(CRMScheduler.runCycle(new Date('2026-09-06T00:01:00Z'), store()));
   assert.equal(values.has('crm:scheduler:lock'), false, 'Failure must release lock');
-  assert.equal(values.has(`crm:scheduler:campaigns:${Math.floor(Date.parse('2026-09-06T00:01:00Z') / 60000)}`), false);
+  const failedBucket = Math.floor(Date.parse('2026-09-06T00:01:00Z') / 60000);
+  const failedPrefix = `crm:scheduler:campaigns:${failedBucket}`;
+  const attemptsKey = 'crm:scheduler:campaigns:attempts';
+  const retryAtKey = 'crm:scheduler:campaigns:retry-at';
+  assert.equal(values.has(failedPrefix), false);
+  assert.equal(values.get(attemptsKey), '1');
+  assert.equal(await CRMScheduler.runCycle(new Date('2026-09-06T00:01:00Z'), store()), 'skipped');
+  values.delete(retryAtKey);
+  await assert.rejects(CRMScheduler.runCycle(new Date('2026-09-06T00:01:00Z'), store()));
+  assert.equal(values.get(attemptsKey), '2');
+  values.delete(retryAtKey);
+  await assert.rejects(CRMScheduler.runCycle(new Date('2026-09-06T00:01:00Z'), store()));
+  assert.equal(values.has(attemptsKey), false);
+  assert.equal(lists.get('crm:scheduler:dead')?.length, 1);
+  assert.equal(values.get(`${failedPrefix}:failed`), 'failed');
+  const monitored = await CRMScheduler.getStatus(store());
+  assert.equal(monitored.deadLetter, 1);
+  assert.equal(monitored.failures, 3);
+  assert.equal(monitored.retries, 2);
+
+  values.clear();
+  lists.clear();
+  CampaignService.prototype.sendCampaign = async () => {
+    throw Object.assign(new Error('private permanent detail'), { code: 'P2021' });
+  };
+  await assert.rejects(CRMScheduler.runCycle(new Date('2026-09-07T00:01:00Z'), store()));
+  assert.equal(lists.get('crm:scheduler:dead')?.length, 1);
+  assert.equal(values.has('crm:scheduler:campaigns:attempts'), false);
+  CampaignService.prototype.sendCampaign = async () => {};
 
   const fault = Object.assign(new Error('rediss://user:private-password@host CRON_SECRET=private-token'), { code: 'ECONNRESET' });
   const checkStage = (stage: string) => (error: unknown) => {
@@ -126,6 +182,12 @@ async function main() {
   assert.equal(server.listening, false);
   let cycles = 0;
   CRMScheduler.runCycle = async () => { cycles++; return 'completed'; };
+  CRMScheduler.getStatus = async () => ({
+    running: false, success: 3, failures: 1, retries: 1, deadLetter: 0,
+  });
+  DeductionQueueService.getStatus = async () => ({
+    ready: 1, processing: 0, deadLetter: 0, success: 2, failures: 1, retries: 1,
+  });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const address = server.address();
@@ -137,6 +199,13 @@ async function main() {
     assert.equal((await fetch(url, { headers: { Authorization: 'Bearer wrong' } })).status, 401);
     assert.equal(cycles, 0);
     const headers = { Authorization: `Bearer ${process.env.CRON_SECRET}` };
+    const statusUrl = `${url}/status`;
+    assert.equal((await fetch(statusUrl)).status, 401);
+    const statusResponse = await fetch(statusUrl, { headers });
+    assert.equal(statusResponse.status, 200);
+    const jobStatus = await statusResponse.json() as any;
+    assert.equal(jobStatus.crm.success, 3);
+    assert.equal(jobStatus.inventory.ready, 1);
     const authorized = await fetch(url, { headers });
     assert.equal(authorized.status, 200);
     assert.deepEqual(await authorized.json(), { status: 'completed' });
