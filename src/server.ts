@@ -38,6 +38,8 @@ import { logSafeError, logStructured } from './lib/safe-error';
 
 
 const app = express();
+// Complete preflight before any Redis, authentication, or route dependency waits.
+app.use(cors(corsOptions));
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: corsOptions,
@@ -112,7 +114,6 @@ app.use(helmet({
   referrerPolicy: { policy: 'no-referrer' },
   frameguard: { action: 'deny' },
 }));
-app.use(cors(corsOptions));
 app.use(express.json());
 
 // Auth routes
