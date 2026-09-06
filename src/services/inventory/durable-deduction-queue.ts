@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { logSafeError } from '../../lib/safe-error';
+import { logSafeError, logStructured } from '../../lib/safe-error';
+import { requestIdOrNew, sanitizeRequestId, withRequestId } from '../../lib/request-context';
 
 export interface DeductionJob {
+  requestId?: string;
   orderId: string;
   restaurantId: string;
   attempts: number;
@@ -61,7 +63,7 @@ export class DurableDeductionQueue {
   ) {}
 
   async enqueue(orderId: string, restaurantId: string): Promise<boolean> {
-    const job: DeductionJob = { orderId, restaurantId, attempts: 0, notBefore: 0 };
+    const job: DeductionJob = { orderId, restaurantId, attempts: 0, notBefore: 0, requestId: requestIdOrNew() };
     const result = await (await this.store()).eval(ENQUEUE_SCRIPT, {
       keys: [this.jobKey(job), READY],
       arguments: [JSON.stringify(job)],
@@ -71,6 +73,10 @@ export class DurableDeductionQueue {
   }
 
   async drain(): Promise<void> {
+    return withRequestId(requestIdOrNew(), () => this.drainWithContext());
+  }
+
+  private async drainWithContext(): Promise<void> {
     if (this.running) return;
     this.running = true;
     try {
@@ -127,6 +133,11 @@ export class DurableDeductionQueue {
       this.logFailure('inventory.queue.payload', error);
       return true;
     }
+    job.requestId = sanitizeRequestId(job.requestId) ?? randomUUID();
+    return withRequestId(job.requestId, () => this.processJob(store, raw, job));
+  }
+
+  private async processJob(store: QueueStore, raw: string, job: DeductionJob): Promise<boolean> {
     const status = await store.get(this.jobKey(job));
     if (status === 'done' || status === 'failed') {
       await store.lRem(PROCESSING, 1, raw);
@@ -134,7 +145,7 @@ export class DurableDeductionQueue {
     }
     const delay = job.notBefore - Date.now();
     if (delay > 0) {
-      await this.requeue(store, raw, raw);
+      await this.requeue(store, raw, JSON.stringify(job));
       this.schedule(delay);
       return false;
     }
@@ -142,7 +153,7 @@ export class DurableDeductionQueue {
     const token = randomUUID();
     const locked = await store.set(lockKey, token, { NX: true, EX: this.options.lockSeconds });
     if (locked !== 'OK') {
-      await this.requeue(store, raw, raw);
+      await this.requeue(store, raw, JSON.stringify(job));
       this.schedule(this.options.baseDelayMs);
       return false;
     }
@@ -151,6 +162,8 @@ export class DurableDeductionQueue {
       await store.set(this.jobKey(job), 'done', { EX: 30 * 24 * 60 * 60 });
       await store.lRem(PROCESSING, 1, raw);
       await this.metric(store, METRICS.success);
+      logStructured('info', 'inventory', 'inventory.deduction.complete', 'completed',
+        'Inventory job completed', { orderId: job.orderId, restaurantId: job.restaurantId });
     } catch (error) {
       const attempts = job.attempts + 1;
       await this.metric(store, METRICS.failure);

@@ -49,6 +49,15 @@
     "ts-node": "^10.9.2",
     "typescript": "^6.0.3"
   },
+  "overrides": {
+    "@prisma/dev": {
+      "@hono/node-server": "1.19.15",
+      "valibot": "1.4.2"
+    },
+    "prisma": {
+      "mysql2": "3.24.3"
+    }
+  },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
   }

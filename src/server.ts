@@ -35,16 +35,21 @@ import { corsOptions } from './config/cors';
 import { DeductionQueueService } from './services/inventory/deduction-queue.service';
 import { checkReadiness } from './services/health.service';
 import { logSafeError, logStructured } from './lib/safe-error';
+import { requestIdMiddleware, traceHttpRequest } from './middlewares/request-id.middleware';
 
 
 const app = express();
+app.use(requestIdMiddleware);
 // Complete preflight before any Redis, authentication, or route dependency waits.
 app.use(cors(corsOptions));
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: corsOptions,
   path: '/socket.io',
 });
+// Engine.IO intercepts HTTP before Express. Keep tracing before its identical
+// CORS middleware so polling, preflight and upgrade responses also carry IDs.
+io.engine.use(traceHttpRequest);
+io.engine.use(cors(corsOptions));
 
 app.set('io', io);
 

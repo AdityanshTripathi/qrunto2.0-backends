@@ -53,7 +53,8 @@ export const createCorsOptions = (env: CorsEnvironment): CorsOptions => {
       return callback(new Error('Origin is not allowed by CORS'));
     },
     methods: ['GET', 'HEAD', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Authorization', 'Content-Type'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'X-Request-ID'],
+    exposedHeaders: ['X-Request-ID'],
     credentials: false,
   };
 };

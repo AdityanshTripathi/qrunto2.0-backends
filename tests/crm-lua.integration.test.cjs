@@ -11,6 +11,8 @@ after(() => assert.equal(violations.length, 0));
 
 test('CRM: actual Lua dead-letter writes failure state after bounded exponential retries', async t => {
   const now = new Date('2026-09-05T00:00:00Z');
+  const { sanitizeRequestId } = require('../dist/lib/request-context');
+  const logs = []; t.mock.method(console, 'error', row => logs.push(row));
   t.mock.timers.enable({ apis: ['Date'], now });
   void prisma.brand.findMany; void prisma.campaign.findMany;
   t.mock.method(prisma.brand, 'findMany', async () => [{ id: 'fixture-brand' }]);
@@ -31,6 +33,12 @@ test('CRM: actual Lua dead-letter writes failure state after bounded exponential
   assert.equal(attempts, 3);
   const status = await CRMScheduler.getStatus(store);
   assert.equal(status.deadLetter, 1); assert.equal(status.failures, 3); assert.equal(status.retries, 2);
+  const dead = JSON.parse(store.lists.get('crm:scheduler:dead')[0]);
+  assert.ok(sanitizeRequestId(dead.requestId));
+  const failures = logs.filter(row => /jobs\.campaigns\.(retry|dead-letter)/.test(row.stage));
+  assert.equal(failures.length, 3);
+  assert.ok(failures.every(row => sanitizeRequestId(row.requestId)));
+  assert.equal(failures[2].requestId, dead.requestId);
   assert.equal(await store.get('crm:scheduler:lock'), null);
   assert.equal(await store.get('crm:scheduler:campaigns:attempts'), null);
   await CRMScheduler.runCycle(now, store); assert.equal(attempts, 3);

@@ -3,6 +3,7 @@ import { LedgerActionType } from '@prisma/client';
 import { redisUrl, sharedRedis } from '../../lib/redis';
 import { logSafeError, logStructured, safeError } from '../../lib/safe-error';
 import { DeductionJob, DurableDeductionQueue, QueueStore } from './durable-deduction-queue';
+import { getRequestId, requestIdOrNew, withRequestId } from '../../lib/request-context';
 
 export class DeductionQueueService {
   private static durable = new DurableDeductionQueue(
@@ -15,13 +16,17 @@ export class DeductionQueueService {
           action: 'INVENTORY_DEDUCTION_FAILED',
           entityType: 'ORDER',
           entityId: job.orderId,
-          metadata: { ...safeError(error), restaurantId: job.restaurantId },
+          metadata: { ...safeError(error), restaurantId: job.restaurantId, requestId: getRequestId() },
         },
       });
     },
   );
 
   static async enqueueDeduction(orderId: string, restaurantId: string): Promise<void> {
+    return withRequestId(requestIdOrNew(), () => this.enqueueWithContext(orderId, restaurantId));
+  }
+
+  private static async enqueueWithContext(orderId: string, restaurantId: string): Promise<void> {
     if (!redisUrl()) {
       await this.deductWithLocalRetry(orderId, restaurantId);
       return;
@@ -161,7 +166,7 @@ export class DeductionQueueService {
           action: 'INVENTORY_DEDUCTION_SUCCESS',
           entityType: 'ORDER',
           entityId: orderId,
-          metadata: { restaurantId },
+          metadata: { restaurantId, requestId: getRequestId() },
         },
       });
     });

@@ -15,7 +15,8 @@ async function request(route, { method = 'GET', body, auth } = {}) {
     method, headers: { 'Content-Type': 'application/json', ...(auth ? { Authorization: `Bearer ${auth}` } : {}) },
     ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(5000),
   });
-  return { status: response.status, body: await response.json() };
+  assert.ok(require('../dist/lib/request-context').sanitizeRequestId(response.headers.get('x-request-id')));
+  return { status: response.status, body: await response.json(), requestId: response.headers.get('x-request-id') };
 }
 async function order(tenant = a, extra = {}) {
   return request(`/api/public/${tenant.restaurant.slug}/orders`, { method: 'POST', body: {
@@ -129,7 +130,9 @@ test('Tenant isolation: real Socket.IO handshake rejects bad auth and only joins
       ...(body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body }),
       signal: AbortSignal.timeout(5000),
     });
-    assert.equal(response.status, 200); return response.text();
+    assert.equal(response.status, 200);
+    assert.ok(require('../dist/lib/request-context').sanitizeRequestId(response.headers.get('x-request-id')));
+    return response.text();
   }
   for (const auth of [{}, { token: 'invalid' }, { token: jwt.sign({ id: a.user.id, restaurantId: b.restaurant.id, role: 'SUPER_ADMIN' }, process.env.JWT_SECRET) }]) {
     const opening = await packet('/socket.io/?EIO=4&transport=polling');
@@ -152,17 +155,40 @@ test('Tenant isolation: real Socket.IO handshake rejects bad auth and only joins
   }
 });
 
+test('Tracing: Socket.IO preflight and WebSocket upgrade carry IDs', { timeout: 5000 }, async () => {
+  const { sanitizeRequestId } = require('../dist/lib/request-context');
+  const res = await fetch(`${base}/socket.io/?EIO=4&transport=polling`, {
+    method: 'OPTIONS', headers: { Origin: process.env.FRONTEND_URL, 'Access-Control-Request-Method': 'GET' },
+    signal: AbortSignal.timeout(3000),
+  });
+  assert.equal(res.status, 204); assert.ok(sanitizeRequestId(res.headers.get('x-request-id')));
+  assert.equal(res.headers.get('access-control-allow-origin'), process.env.FRONTEND_URL);
+  const WebSocket = require('ws');
+  const ws = new WebSocket(`${base.replace('http:', 'ws:')}/socket.io/?EIO=4&transport=websocket`);
+  try {
+    const [[upgrade], [opening]] = await Promise.all([once(ws, 'upgrade'), once(ws, 'message')]);
+    assert.ok(sanitizeRequestId(upgrade.headers['x-request-id']));
+    assert.ok(opening.toString().startsWith('0'));
+  } finally { ws.terminate(); }
+});
+
 test('Inventory/payments: HTTP settlement enqueues correct IDs once; replay creates no second payment', async t => {
   const { LuaStore } = require('./support/lua-store.cjs');
   const store = new LuaStore();
   const handled = [];
-  const queue = new DurableDeductionQueue(async () => store, async job => { handled.push([job.orderId, job.restaurantId]); },
+  const traced = [];
+  const queue = new DurableDeductionQueue(async () => store, async job => { handled.push([job.orderId, job.restaurantId]); traced.push(job.requestId); },
     { maxAttempts: 5, baseDelayMs: 1000, lockSeconds: 300, batchSize: 25, autoStart: false });
   t.mock.method(DeductionQueueService, 'enqueueDeduction', (id, restaurantId) => queue.enqueue(id, restaurantId));
   const id = (await order()).body.order.id;
-  for (let i = 0; i < 2; i++) assert.equal((await request(`/api/orders/${id}/pay`, { method: 'POST', auth: token(a.user), body: { paymentMethod: 'CASH' } })).status, 200);
+  const payments = [];
+  for (let i = 0; i < 2; i++) {
+    const paid = await request(`/api/orders/${id}/pay`, { method: 'POST', auth: token(a.user), body: { paymentMethod: 'CASH' } });
+    assert.equal(paid.status, 200); payments.push(paid.requestId);
+  }
   await queue.drain(); await queue.drain();
   assert.deepEqual(handled, [[id, a.restaurant.id]]);
+  assert.deepEqual(traced, [payments[0]]);
   assert.equal(db.data.payments.length, 1); assert.equal(db.data.transactions.length, 1);
   assert.equal(db.data.payments[0].amount, 220);
   assert.equal(db.data.payments[0].restaurantId, a.restaurant.id);
@@ -177,6 +203,31 @@ test('Payments CURRENT behavior: public mock payment accepts no proof and duplic
   assert.equal(db.data.payments.length, 2);
   assert.equal((await request(`/api/public/${b.restaurant.slug}/orders/${id}/pay-mock`, { method: 'POST', body: {} })).status, 404);
 });
+test('Tracing: health/readiness and protected CRM cron retain the HTTP ID in logs', async t => {
+  const logs = []; t.mock.method(console, 'info', row => logs.push(row));
+  const { getRequestId } = require('../dist/lib/request-context');
+  const { logStructured } = require('../dist/lib/safe-error');
+  const { CRMScheduler } = require('../dist/services/crm/scheduler.service');
+  t.mock.method(require('../dist/services/health.service'), 'checkReadiness', async () => ({
+    status: 'healthy', dependencies: { database: 'healthy', redis: 'healthy' },
+  }));
+  let cronId;
+  t.mock.method(CRMScheduler, 'runCycle', async () => {
+    await Promise.resolve(); cronId = getRequestId();
+    logStructured('info', 'crm', 'test.cron', 'completed', 'Cron context retained');
+    return 'completed';
+  });
+  for (const route of ['/health', '/ready']) {
+    const res = await request(route); assert.equal(res.status, 200);
+    assert.ok(logs.some(row => row.stage === 'request.complete' && row.requestId === res.requestId));
+  }
+  assert.equal((await request('/api/internal/cron/crm')).status, 401);
+  assert.equal(cronId, undefined);
+  const res = await request('/api/internal/cron/crm', { auth: process.env.CRON_SECRET });
+  assert.equal(res.status, 200); assert.equal(cronId, res.requestId);
+  assert.ok(logs.some(row => row.stage === 'test.cron' && row.requestId === res.requestId));
+});
+
 test.todo('DEFERRED Payments: provider signature/amount verification and fake-payment protection');
 test.todo('DEFERRED Payments: concurrent idempotency and atomic payment-to-queue handoff');
 test.todo('UNVERIFIED Database: real PostgreSQL constraints, RLS and transaction isolation');

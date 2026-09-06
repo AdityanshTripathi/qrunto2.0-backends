@@ -5,6 +5,7 @@ import { OccasionService } from './occasion.service';
 import { sharedRedis, RedisConnection } from '../../lib/redis';
 import { randomUUID } from 'node:crypto';
 import { logSafeError, logStructured, safeError, StageError } from '../../lib/safe-error';
+import { getRequestId, requestIdOrNew, withRequestId } from '../../lib/request-context';
 
 const segmentService = new SegmentService();
 const campaignService = new CampaignService();
@@ -53,6 +54,10 @@ export class CRMScheduler {
 
   // One awaited cycle. Redis coordinates separate serverless instances.
   static async runCycle(now = new Date(), suppliedStore?: RedisConnection): Promise<'completed' | 'skipped'> {
+    return withRequestId(requestIdOrNew(), () => this.runCycleWithContext(now, suppliedStore));
+  }
+
+  private static async runCycleWithContext(now: Date, suppliedStore?: RedisConnection): Promise<'completed' | 'skipped'> {
     let store: RedisConnection | undefined = suppliedStore;
     let stage = 'redis.connect';
     let failed = false;
@@ -131,6 +136,8 @@ export class CRMScheduler {
       () => store.set(checkpoint, 'done', { EX: job.period * 2 }));
     await store.del([attemptsKey, retryAtKey]);
     await this.metric(store, METRICS.success);
+    logStructured('info', 'crm', `jobs.${job.name}.complete`, 'completed', 'CRM job completed',
+      { job: job.name, bucket });
     return true;
   }
 
@@ -147,14 +154,14 @@ export class CRMScheduler {
 
     if (attempts >= MAX_ATTEMPTS) {
       const dead = JSON.stringify({
-        job: job.name, bucket, attempts, code: failure.code, failedAt: Date.now(),
+        job: job.name, bucket, attempts, code: failure.code, failedAt: Date.now(), requestId: getRequestId(),
       });
       await store.eval(DEAD_SCRIPT, {
         keys: [failedKey, DEAD_LETTER, attemptsKey, retryAtKey],
         arguments: [String(FAILURE_STATE_TTL), dead],
       });
       logSafeError(`jobs.${job.name}.dead-letter`, error, 'crm', {
-        status: 'dead-letter', job: job.name, attempt: attempts,
+        status: 'dead-letter', job: job.name, bucket, attempt: attempts,
       });
       return;
     }
@@ -163,7 +170,7 @@ export class CRMScheduler {
     await store.set(retryAtKey, String(Date.now() + delayMs), { EX: FAILURE_STATE_TTL });
     await this.metric(store, METRICS.retry);
     logSafeError(`jobs.${job.name}.retry`, error, 'crm', {
-      status: 'retrying', job: job.name, attempt: attempts, retryInMs: delayMs,
+      status: 'retrying', job: job.name, bucket, attempt: attempts, retryInMs: delayMs,
     });
   }
 
@@ -186,26 +193,32 @@ export class CRMScheduler {
     logStructured('info', 'crm', 'scheduler.start', 'started', 'Background scheduler initialized');
 
     // Run evaluations once on startup
-    this.runEvaluations().catch(err => logSafeError('startup.segments', err));
-    campaignService.processQueuedCampaigns().catch(err => logSafeError('startup.campaigns', err));
-    occasionService.checkAndSendOccasionMessages().catch(err => logSafeError('startup.occasions', err));
+    this.runLocal('startup.segments', () => this.runEvaluations());
+    this.runLocal('startup.campaigns', () => campaignService.processQueuedCampaigns());
+    this.runLocal('startup.occasions', () => occasionService.checkAndSendOccasionMessages());
 
     // Run every 4 hours (4 * 60 * 60 * 1000 ms)
     const intervalMs = 4 * 60 * 60 * 1000;
     schedulerInterval = setInterval(() => {
-      this.runEvaluations().catch(err => logSafeError('interval.segments', err));
+      this.runLocal('interval.segments', () => this.runEvaluations());
     }, intervalMs);
 
     // Run campaign scanner every 1 minute (60 * 1000 ms)
     campaignInterval = setInterval(() => {
-      campaignService.processQueuedCampaigns().catch(err => logSafeError('interval.campaigns', err));
+      this.runLocal('interval.campaigns', () => campaignService.processQueuedCampaigns());
     }, 60 * 1000);
 
     // Run occasion checker every 24 hours (24 * 60 * 60 * 1000 ms)
     const occasionIntervalMs = 24 * 60 * 60 * 1000;
     occasionInterval = setInterval(() => {
-      occasionService.checkAndSendOccasionMessages().catch(err => logSafeError('interval.occasions', err));
+      this.runLocal('interval.occasions', () => occasionService.checkAndSendOccasionMessages());
     }, occasionIntervalMs);
+  }
+
+  private static runLocal(stage: string, action: () => Promise<unknown>): void {
+    void withRequestId(undefined, async () => {
+      try { await action(); } catch (error) { logSafeError(stage, error); }
+    });
   }
 
   // Stop background jobs (for clean shutdowns)

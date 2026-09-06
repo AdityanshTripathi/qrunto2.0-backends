@@ -1,3 +1,4 @@
+import { getRequestId } from './request-context';
 // Never emit raw exceptions: connection errors can contain credentials and URLs.
 const messages: Record<string, string> = {
   ECONNREFUSED: 'Connection refused', ECONNRESET: 'Connection reset',
@@ -41,7 +42,7 @@ export function logStructured(
   level: 'info' | 'warn' | 'error', service: string, stage: string,
   status: string, message: string, context: Record<string, unknown> = {},
 ): void {
-  console[level]({ level, service, stage, status, code: 'OK', message, ...context });
+  console[level]({ level, service, stage, status, code: 'OK', message, ...context, requestId: getRequestId() });
 }
 
 export function logSafeError(
@@ -49,6 +50,6 @@ export function logSafeError(
 ): void {
   console.error({
     level: 'error', service, stage: error instanceof StageError ? error.stage : stage,
-    status: 'failed', ...safeError(error), ...context,
+    status: 'failed', ...safeError(error), ...context, requestId: getRequestId(),
   });
 }
