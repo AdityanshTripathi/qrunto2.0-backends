@@ -64,6 +64,7 @@ export async function main() {
   const publisher = clients[0]!;
   const subscriber = clients[1]!;
   const errorListeners = publisher.listenerCount('error');
+  const readyListeners = publisher.listenerCount('ready');
   publisher.isReady = subscriber.isReady = false;
   const recovering = Promise.all(Array.from({ length: 20 }, () => manager.commands()));
   const adapterRecovering = manager.initializeAdapter(io);
@@ -78,7 +79,7 @@ export async function main() {
   assert.equal(created, 2, 'Recovery retains at most two clients');
   assert.equal(subscriptions, 2, 'Recovery must not reinstall the adapter');
   assert.equal(publisher.listenerCount('error'), errorListeners);
-  assert.equal(publisher.listenerCount('ready'), 0);
+  assert.equal(publisher.listenerCount('ready'), readyListeners);
   assert.equal(publisher.listenerCount('end'), 0);
   publisher.isReady = false;
   const exhausted = assert.rejects(manager.commands(), error => error instanceof StageError && error.stage === 'redis.reconnect.wait' && error.code === 'ECONNRESET');
@@ -106,7 +107,7 @@ export async function main() {
   expire!();
   await timeoutCheck;
   assert.equal(publisher.listenerCount('error'), errorListeners);
-  assert.equal(publisher.listenerCount('ready'), 0);
+  assert.equal(publisher.listenerCount('ready'), readyListeners);
   assert.equal(publisher.listenerCount('end'), 0);
   clients[0]!.isReady = clients[0]!.isOpen = false;
   fail = true;

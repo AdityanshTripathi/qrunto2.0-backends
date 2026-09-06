@@ -1,4 +1,5 @@
 import { getRequestId } from './request-context';
+import { monitoringMetrics } from './monitoring-metrics';
 // Never emit raw exceptions: connection errors can contain credentials and URLs.
 const messages: Record<string, string> = {
   ECONNREFUSED: 'Connection refused', ECONNRESET: 'Connection reset',
@@ -48,6 +49,7 @@ export function logStructured(
 export function logSafeError(
   stage: string, error: unknown, service = 'crm', context: Record<string, unknown> = {},
 ): void {
+  monitoringMetrics.failure(service, error instanceof StageError ? error.stage : stage);
   console.error({
     level: 'error', service, stage: error instanceof StageError ? error.stage : stage,
     status: 'failed', ...safeError(error), ...context, requestId: getRequestId(),

@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "evaluationSeconds": 60,
+  "windowSeconds": 300,
+  "failureConfirmationPolls": 2,
+  "recoveryConfirmationPolls": 2,
+  "rules": [
+    { "id": "READINESS_UNHEALTHY", "source": "GET /ready", "condition": "HTTP status != 200 or timeout", "severity": "critical" },
+    { "id": "MONITORING_UNAVAILABLE", "source": "GET /api/internal/cron/crm/monitoring", "condition": "HTTP status != 200 or timeout; 401 indicates monitor auth/config failure", "severity": "critical" },
+    { "id": "REDIS_UNAVAILABLE", "source": "monitoring.readiness.dependencies.redis", "condition": "!= healthy or unavailable", "severity": "critical" },
+    { "id": "DEAD_LETTER", "source": "monitoring.crm.deadLetter / inventory.deadLetter", "condition": "either count > 0", "severity": "critical" },
+    { "id": "BACKGROUND_REPEATED_FAILURE", "source": "fleet structured logs", "condition": ">= 3 retry/dead-letter events per service in 5 minutes; exclude enclosing cron.cycle errors", "severity": "warning" },
+    { "id": "REDIS_REPEATED_FAILURE", "source": "fleet structured logs", "condition": ">= 3 service=redis level=error events in 5 minutes", "severity": "warning" },
+    { "id": "HTTP_5XX_SPIKE", "source": "fleet request.complete logs where apiRequest=true", "condition": "requests >= 20 AND errors5xx >= 5 AND errors5xx/requests >= 0.05 in 5 minutes", "severity": "critical" },
+    { "id": "HTTP_HIGH_LATENCY", "source": "fleet request.complete logs where apiRequest=true", "condition": "requests >= 20 AND durationMs>=2000 count >= 10 AND slow/requests >= 0.2 in 5 minutes, for two consecutive evaluations", "severity": "warning" },
+    { "id": "PROCESS_FATAL", "source": "fleet structured logs", "condition": "service=process stage=uncaught-exception OR stage=unhandled-rejection; also platform process termination events", "severity": "critical", "failureConfirmationPolls": 1 }
+  ]
+}

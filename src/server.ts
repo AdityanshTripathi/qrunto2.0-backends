@@ -36,9 +36,11 @@ import { DeductionQueueService } from './services/inventory/deduction-queue.serv
 import { checkReadiness } from './services/health.service';
 import { logSafeError, logStructured } from './lib/safe-error';
 import { requestIdMiddleware, traceHttpRequest } from './middlewares/request-id.middleware';
+import { installProcessMonitoring } from './lib/process-monitoring';
 
 
 const app = express();
+installProcessMonitoring();
 app.use(requestIdMiddleware);
 // Complete preflight before any Redis, authentication, or route dependency waits.
 app.use(cors(corsOptions));

@@ -1,7 +1,7 @@
 import { createClient, RedisClientOptions } from 'redis';
 import { createAdapter } from '@socket.io/redis-adapter';
 import type { Server } from 'socket.io';
-import { logSafeError, StageError } from './safe-error';
+import { logSafeError, logStructured, StageError } from './safe-error';
 
 const defaultRedisClient = (options: RedisClientOptions) => createClient(options);
 export type RedisConnection = ReturnType<typeof defaultRedisClient>;
@@ -40,7 +40,17 @@ export class SharedRedis {
         reconnectStrategy: retries => retries < 2 ? 250 * (retries + 1) : false,
       },
     });
-    client.on('error', error => logSafeError('connection', error, 'redis'));
+    let interrupted = false;
+    client.on('error', error => { interrupted = true; logSafeError('connection', error, 'redis'); });
+    client.on('reconnecting', () => {
+      if (!interrupted) logStructured('warn', 'redis', 'connection.reconnecting', 'retrying',
+        'Redis reconnecting', { code: 'REDIS_RECONNECTING' });
+      interrupted = true;
+    });
+    client.on('ready', () => {
+      if (interrupted) logStructured('info', 'redis', 'connection.recovered', 'recovered', 'Redis connection recovered');
+      interrupted = false;
+    });
     if (subscriber) this.subscriberClient = client;
     else this.commandClient = client;
     return client;

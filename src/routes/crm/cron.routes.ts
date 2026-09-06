@@ -3,8 +3,27 @@ import { timingSafeEqual } from 'node:crypto';
 import { CRMScheduler } from '../../services/crm/scheduler.service';
 import { logSafeError } from '../../lib/safe-error';
 import { DeductionQueueService } from '../../services/inventory/deduction-queue.service';
+import { getMonitoringStatus } from '../../services/monitoring.service';
 
 const router = Router();
+
+router.get('/monitoring', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return void res.status(503).json({ error: 'Monitoring unavailable' });
+  const expected = Buffer.from(`Bearer ${secret}`);
+  const received = Buffer.from(req.get('authorization') || '');
+  if (expected.length !== received.length || !timingSafeEqual(expected, received)) {
+    return void res.status(401).json({ error: 'Unauthorized' });
+  }
+  try {
+    const status = await getMonitoringStatus();
+    res.status(status.alerts.length ? 503 : 200).json(status);
+  } catch (error) {
+    logSafeError('status.read', error, 'monitoring');
+    res.status(503).json({ error: 'Monitoring unavailable' });
+  }
+});
 
 router.get('/', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
