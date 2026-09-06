@@ -84,6 +84,9 @@ export class DurableDeductionQueue {
         if (!raw || !(await this.process(store, raw))) break;
       }
     } catch (error) {
+      // A command may have claimed a job before its response was lost. Recover
+      // processing entries again on the next drain, including warm reuse.
+      this.recovered = false;
       this.logFailure('inventory.queue.drain', error);
       this.schedule(this.options.baseDelayMs);
     } finally {

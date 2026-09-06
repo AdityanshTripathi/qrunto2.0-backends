@@ -198,6 +198,61 @@ async function multiWorkerContention(): Promise<void> {
   assert.equal(calls, 1);
 }
 
+async function reconnectRecovery(): Promise<void> {
+  // Model disconnects before/after a claim, during lock acquisition, and after
+  // a successful deduction but before Redis acknowledges completion.
+  for (const failurePoint of ['claim', 'claim-response', 'lock', 'ack', 'release']) {
+    const store = new FakeStore();
+    let disconnected = false;
+    let injected = false;
+    let effects = 0;
+    const applied = new Set<string>();
+    const connectionError = () => Object.assign(new Error('private-redis-detail'), { code: 'ECONNRESET' });
+    const guarded = new Proxy(store, {
+      get(target, property) {
+        const value = Reflect.get(target, property);
+        if (typeof value !== 'function') return value;
+        return async (...args: any[]) => {
+          if (disconnected) throw connectionError();
+          const matches = (failurePoint.startsWith('claim') && property === 'lMove' && args[0] === 'inventory:deduction:ready')
+            || (failurePoint === 'lock' && property === 'set' && args[0].includes(':lock:'))
+            || (failurePoint === 'ack' && property === 'set' && args[1] === 'done')
+            || (failurePoint === 'release' && property === 'eval' && args[0].includes('inventory-lock-release'));
+          if (!injected && matches) {
+            injected = disconnected = true;
+            if (failurePoint === 'claim-response') await value.apply(target, args);
+            throw connectionError();
+          }
+          return value.apply(target, args);
+        };
+      },
+    }) as QueueStore;
+    const queue = new DurableDeductionQueue(async () => {
+      if (disconnected) throw connectionError();
+      return guarded;
+    }, async job => {
+      if (!applied.has(job.orderId)) { applied.add(job.orderId); effects++; }
+    }, options);
+    await queue.enqueue('reconnect', 'r1');
+    await queue.drain();
+    assert.ok(injected);
+    disconnected = false;
+    // Simulate expiry of a lock whose release was interrupted.
+    store.strings.delete('inventory:deduction:lock:r1:reconnect');
+    await queue.drain();
+    assert.equal(await store.get(key('r1', 'reconnect')), 'done', failurePoint);
+    assert.equal(effects, 1, failurePoint);
+    assert.equal(await store.lLen('inventory:deduction:processing'), 0, failurePoint);
+    assert.equal(await store.lLen('inventory:deduction:dead'), 0, failurePoint);
+    const errors: unknown[] = [];
+    const originalError = console.error;
+    console.error = (...args) => { errors.push(args); };
+    try { for (let i = 0; i < 3; i++) await queue.drain(); }
+    finally { console.error = originalError; }
+    assert.equal(errors.length, 0, 'No recurring failures after reconnect');
+  }
+}
+
 async function main(): Promise<void> {
   await orderToQueueIntegration();
   await exactlyOnceDeduction();
@@ -206,6 +261,7 @@ async function main(): Promise<void> {
   await deadLetterAndMonitoring();
   await restartRecovery();
   await multiWorkerContention();
+  await reconnectRecovery();
   console.log('Inventory durable queue tests passed');
 }
 

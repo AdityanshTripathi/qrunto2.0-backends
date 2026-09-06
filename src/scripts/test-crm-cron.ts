@@ -210,6 +210,14 @@ async function main() {
     assert.equal(authorized.status, 200);
     assert.deepEqual(await authorized.json(), { status: 'completed' });
     assert.equal(cycles, 1);
+    process.env.CRON_SECRET = 'test-only-rotated-cron-secret';
+    assert.equal((await fetch(url, { headers })).status, 401, 'Old forwarded secret is rejected after rotation');
+    assert.equal((await fetch(statusUrl, { headers })).status, 401);
+    const rotatedHeaders = { Authorization: `Bearer ${process.env.CRON_SECRET}` };
+    assert.equal((await fetch(url, { headers: rotatedHeaders })).status, 200);
+    assert.equal((await fetch(statusUrl, { headers: rotatedHeaders })).status, 200);
+    assert.equal(cycles, 2);
+    process.env.CRON_SECRET = 'test-only-cron-secret';
     CRMScheduler.runCycle = async () => { throw new Error('internal-test-detail'); };
     const failed = await fetch(url, { headers });
     assert.equal(failed.status, 500);
