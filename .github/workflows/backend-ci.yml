@@ -1,0 +1,52 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-checks:
+    name: Backend checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Schema tooling only; no server exists at this address and no credentials
+      # are supplied. Integration tests replace env and block external services.
+      DATABASE_URL: postgresql://127.0.0.1:1/ci
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.x'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies and generate Prisma client
+        # The existing postinstall script runs prisma generate.
+        run: npm ci
+
+      - name: Validate Prisma schema
+        run: npx --no-install prisma validate
+
+      - name: Build, type-check and run integration tests
+        # This command runs npm run build (tsc) before node:test; do not build twice.
+        # Payment/infrastructure TODOs stay visible and do not fail the suite.
+        run: npm run test:integration
+
+      - name: Run preflight reliability regression
+        timeout-minutes: 2
+        run: node --require ./tests/support/isolation.cjs dist/scripts/test-preflight.js

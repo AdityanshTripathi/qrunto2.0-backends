@@ -6,9 +6,10 @@ import { prisma } from '../lib/prisma';
 import { OrderService } from '../services/order.service';
 import { DeductionQueueService } from '../services/inventory/deduction-queue.service';
 
-class FakeStore implements QueueStore {
+export class FakeStore implements QueueStore {
   readonly strings = new Map<string, string>();
   readonly lists = new Map<string, string[]>();
+  readonly expires = new Map<string, number>();
 
   async eval(script: string, options: { keys: string[]; arguments: string[] }): Promise<number> {
     if (script.includes('inventory-enqueue')) {
@@ -30,10 +31,18 @@ class FakeStore implements QueueStore {
     return 0;
   }
 
-  async get(key: string): Promise<string | null> { return this.strings.get(key) ?? null; }
-  async set(key: string, value: string, options?: { NX?: boolean }): Promise<string | null> {
-    if (options?.NX && this.strings.has(key)) return null;
+  async get(key: string): Promise<string | null> {
+    if ((this.expires.get(key) ?? Infinity) <= Date.now()) {
+      this.strings.delete(key);
+      this.expires.delete(key);
+    }
+    return this.strings.get(key) ?? null;
+  }
+  async set(key: string, value: string, options?: { NX?: boolean; EX?: number }): Promise<string | null> {
+    if (options?.NX && this.strings.has(key) && (this.expires.get(key) ?? Infinity) > Date.now()) return null;
     this.strings.set(key, value);
+    if (options?.EX) this.expires.set(key, Date.now() + options.EX * 1000);
+    else this.expires.delete(key);
     return 'OK';
   }
   async lMove(source: string, destination: string): Promise<string | null> {
@@ -265,7 +274,10 @@ async function main(): Promise<void> {
   console.log('Inventory durable queue tests passed');
 }
 
-void main().catch((error: unknown) => {
+export { orderToQueueIntegration, exactlyOnceDeduction, successAndDuplicate,
+  transientRetry, deadLetterAndMonitoring, restartRecovery, multiWorkerContention, reconnectRecovery };
+
+if (require.main === module) void main().catch((error: unknown) => {
   console.error('Inventory durable queue tests failed:', error instanceof Error ? error.stack : 'unknown');
   process.exitCode = 1;
 });

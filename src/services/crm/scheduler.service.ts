@@ -26,9 +26,9 @@ const permanentCodes = new Set([
 ]);
 const DEAD_SCRIPT = [
   '-- crm-dead-letter',
-  'redis.call(set, KEYS[1], failed, EX, ARGV[1])',
-  'redis.call(rpush, KEYS[2], ARGV[2])',
-  'redis.call(del, KEYS[3], KEYS[4])',
+  'redis.call("set", KEYS[1], "failed", "EX", ARGV[1])',
+  'redis.call("rpush", KEYS[2], ARGV[2])',
+  'redis.call("del", KEYS[3], KEYS[4])',
   'return 1',
 ].join('\n');
 

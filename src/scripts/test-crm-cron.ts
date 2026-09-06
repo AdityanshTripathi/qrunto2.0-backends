@@ -12,7 +12,7 @@ import { StageError } from '../lib/safe-error';
 import { DeductionQueueService } from '../services/inventory/deduction-queue.service';
 
 // Only mocked CRM data: no campaign messages or database writes.
-async function main() {
+export async function main() {
   process.env.VERCEL = '1';
   delete process.env.REDIS_URL;
   delete process.env.SOCKET_REDIS_URL;
@@ -232,5 +232,5 @@ async function main() {
   }
 }
 
-main().catch((error: unknown) => { console.error(error); process.exitCode = 1; })
+if (require.main === module) main().catch((error: unknown) => { console.error(error); process.exitCode = 1; })
   .finally(async () => { await prisma.$disconnect(); await pool.end(); });

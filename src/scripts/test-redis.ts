@@ -6,7 +6,7 @@ import { createClient } from 'redis';
 import { safeError, StageError } from '../lib/safe-error';
 import { redisUrl, SharedRedis, sharedRedis } from '../lib/redis';
 
-async function main() {
+export async function main() {
   assert.equal(redisUrl({}), undefined);
   assert.equal(redisUrl({ REDIS_URL: ' redis://primary:6379 ', SOCKET_REDIS_URL: 'redis://legacy:6379' }), 'redis://primary:6379');
   assert.equal(redisUrl({ REDIS_URL: '', SOCKET_REDIS_URL: 'redis://legacy:6379' }), 'redis://legacy:6379');
@@ -126,4 +126,4 @@ async function main() {
   console.log('PASS: env/TLS, concurrent reuse, adapter initialization, bounded retries, disconnect/reconnect, terminal recovery, listener cleanup, two-client limit, sanitized failures, module reload singleton');
 }
 
-main().catch(error => { console.error(error); process.exitCode = 1; });
+if (require.main === module) main().catch(error => { console.error(error); process.exitCode = 1; });

@@ -56,14 +56,14 @@ async function livenessTest(): Promise<void> {
   }
 }
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   await readinessTests();
   loggingTest();
   await livenessTest();
   console.log('Health, readiness, and structured logging tests passed');
 }
 
-void main().catch((error: unknown) => {
+if (require.main === module) void main().catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : 'Health test failed');
   process.exitCode = 1;
 });
