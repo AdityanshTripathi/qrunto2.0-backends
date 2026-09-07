@@ -55,7 +55,7 @@ export class MenuItemRepository {
   async update(
     id: string,
     restaurantId: string,
-    data: Partial<Omit<MenuItem, 'id' | 'restaurantId' | 'createdAt' | 'updatedAt'>>
+    data: Partial<Omit<MenuItem, 'id' | 'restaurantId' | 'createdAt' | 'updatedAt' | 'price'>> & { price?: number | MenuItem['price'] }
   ): Promise<MenuItem> {
     await prisma.menuItem.updateMany({
       where: { id, restaurantId },

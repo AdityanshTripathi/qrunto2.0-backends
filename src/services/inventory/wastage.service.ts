@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma';
+import { lineTotal } from '../../lib/money';
 import { WastageRecord, WastageReason, LedgerActionType } from '@prisma/client';
 
 export class WastageService {
@@ -45,7 +46,7 @@ export class WastageService {
       }
 
       // Calculate cost based on average cost
-      const wastageCost = data.quantity * material.averageCost;
+      const wastageCost = lineTotal(material.averageCost, data.quantity);
       const previousStock = material.currentStock;
       const newStock = previousStock - data.quantity;
 

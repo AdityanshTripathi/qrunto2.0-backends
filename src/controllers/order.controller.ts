@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { moneyNumber } from '../lib/money';
 import { z } from 'zod';
 import { OrderService } from '../services/order.service';
 import { OrderStatus } from '@prisma/client';
@@ -113,7 +114,7 @@ export class OrderController {
           orderNumber: order.orderNumber,
           status: order.status,
           tableNumber: order.table.tableNumber,
-          totalAmount: order.totalAmount,
+          totalAmount: moneyNumber(order.totalAmount),
         });
 
         if (order.status === 'READY') {
@@ -179,7 +180,7 @@ export class OrderController {
           orderNumber: order.orderNumber,
           status: order.status,
           tableNumber: order.table.tableNumber,
-          totalAmount: order.totalAmount,
+          totalAmount: moneyNumber(order.totalAmount),
         });
       }
 

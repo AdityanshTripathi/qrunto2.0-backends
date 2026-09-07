@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma';
+import { decimal } from '../../lib/money';
 import { LoyaltyTransactionType } from '@prisma/client';
 
 export class LoyaltyService {
@@ -68,7 +69,7 @@ export class LoyaltyService {
   async earnPoints(
     customerId: string,
     brandId: string,
-    amountSpent: number,
+      amountSpent: import('../../lib/money').MoneyInput,
     orderId: string,
     tx?: any
   ): Promise<any> {
@@ -81,7 +82,7 @@ export class LoyaltyService {
     const { multiplier } = await this.determineCustomerTierAndMultiplier(customerId, brandId, client);
 
     // 3. Calculate points (e.g. ₹1 = 1 point * multiplier)
-    const pointsToEarn = Math.floor(amountSpent * multiplier);
+    const pointsToEarn = decimal(amountSpent).times(multiplier).floor().toNumber();
 
     if (pointsToEarn <= 0) return account;
 

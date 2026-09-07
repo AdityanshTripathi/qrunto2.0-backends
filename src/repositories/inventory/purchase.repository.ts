@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma';
+import { decimal } from '../../lib/money';
 import { PurchaseOrder, PurchaseOrderStatus, LedgerActionType } from '@prisma/client';
 
 export class PurchaseRepository {
@@ -219,7 +220,7 @@ export class PurchaseRepository {
         const newStock = currentStock + quantityReceived;
 
         if (newStock > 0) {
-          newAverageCost = ((currentStock * previousAverageCost) + (quantityReceived * unitPrice)) / newStock;
+          newAverageCost = decimal(currentStock).times(previousAverageCost).plus(decimal(quantityReceived).times(unitPrice)).dividedBy(newStock).toDecimalPlaces(6);
         } else {
           newAverageCost = unitPrice;
         }

@@ -6,6 +6,7 @@ import {
   PaginatedOrders,
 } from '../repositories/order.repository';
 import { OrderStatus } from '@prisma/client';
+import { decimal, money, moneyNumber } from '../lib/money';
 import { prisma } from '../lib/prisma';
 import { LoyaltyService } from './crm/loyalty.service';
 import { DeductionQueueService } from './inventory/deduction-queue.service';
@@ -127,8 +128,8 @@ export class OrderService {
       }
 
       // 2. Calculate discount (1 point = ₹1)
-      const discount = Math.min(order.totalAmount, pointsToRedeem);
-      const newTotalAmount = parseFloat((order.totalAmount - discount).toFixed(2));
+      const discount = moneyNumber(decimal(order.totalAmount).lt(pointsToRedeem) ? order.totalAmount : pointsToRedeem);
+      const newTotalAmount = moneyNumber(money(decimal(order.totalAmount).minus(discount)));
       
       // Append note to order
       const orderNotes = `${order.notes || ''} [POS Redeemed ${pointsToRedeem} points, ₹${discount} discount]`.trim();

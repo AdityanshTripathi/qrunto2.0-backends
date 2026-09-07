@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma';
 import { CouponDiscountType } from '@prisma/client';
+import { decimal, money, moneyNumber } from '../../lib/money';
 
 export interface CreateCouponInput {
   code: string;
@@ -135,7 +136,7 @@ export class CouponService {
     }
 
     // 2. Validate order subtotal requirement
-    if (orderAmount < coupon.minOrderAmount) {
+    if (decimal(orderAmount).lt(coupon.minOrderAmount)) {
       throw new Error(`Order amount must be at least ₹${coupon.minOrderAmount} to use this coupon`);
     }
 
@@ -153,17 +154,18 @@ export class CouponService {
     }
 
     // 4. Calculate discount
-    let discountAmount = 0;
+    let discountAmount = decimal(0);
     if (coupon.discountType === CouponDiscountType.FIXED) {
-      discountAmount = coupon.discountValue;
+      discountAmount = decimal(coupon.discountValue);
     } else if (coupon.discountType === CouponDiscountType.PERCENTAGE) {
-      discountAmount = (orderAmount * coupon.discountValue) / 100;
-      if (coupon.maxDiscountAmount) {
-        discountAmount = Math.min(discountAmount, coupon.maxDiscountAmount);
+      discountAmount = money(decimal(orderAmount).times(coupon.discountValue).dividedBy(100));
+      if (coupon.maxDiscountAmount !== null) {
+        if (discountAmount.gt(coupon.maxDiscountAmount)) discountAmount = decimal(coupon.maxDiscountAmount);
       }
     }
 
-    discountAmount = Math.min(discountAmount, orderAmount);
+    if (discountAmount.gt(orderAmount)) discountAmount = decimal(orderAmount);
+    discountAmount = money(discountAmount);
 
     // 5. Update issuance record to REDEEMED
     await client.customerCoupon.update({
@@ -175,6 +177,6 @@ export class CouponService {
       },
     });
 
-    return { discountAmount };
+    return { discountAmount: moneyNumber(discountAmount) };
   }
 }

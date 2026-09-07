@@ -1,5 +1,6 @@
 import { RecipeRepository } from '../../repositories/inventory/recipe.repository';
 import { Recipe } from '@prisma/client';
+import { decimal, money, moneyNumber } from '../../lib/money';
 
 const recipeRepository = new RecipeRepository();
 
@@ -24,32 +25,37 @@ function getConversionFactor(materialUnit: string): number {
 
 export class RecipeService {
   private calculateMetrics(recipe: any): RecipeCostMetrics {
-    const menuItemPrice = recipe.menuItem?.price || 0;
+    const menuItemPrice = decimal(recipe.menuItem?.price ?? 0);
     
     // Food Cost = sum((RecipeIngredient.quantity / conversionFactor) * RawMaterial.averageCost)
-    let foodCost = 0;
+    let foodCost = decimal(0);
     if (recipe.ingredients) {
       for (const ing of recipe.ingredients) {
-        const avgCost = ing.rawMaterial?.averageCost || 0;
+        const avgCost = decimal(ing.rawMaterial?.averageCost ?? 0);
         const conversionFactor = getConversionFactor(ing.rawMaterial?.unit);
-        const scaledQuantity = ing.quantity / conversionFactor;
-        foodCost += scaledQuantity * avgCost;
+        const scaledQuantity = decimal(ing.quantity).dividedBy(conversionFactor);
+        foodCost = foodCost.plus(scaledQuantity.times(avgCost));
       }
     }
 
     // Food Cost % = (Food Cost / MenuItem.price) * 100
-    const foodCostPercentage = menuItemPrice > 0 ? (foodCost / menuItemPrice) * 100 : 0;
+    const roundedFoodCost = money(foodCost);
+    const foodCostPercentage = menuItemPrice.gt(0)
+      ? moneyNumber(foodCost.dividedBy(menuItemPrice).times(100).toDecimalPlaces(2))
+      : 0;
 
     // Gross Profit = MenuItem.price - Food Cost
-    const grossProfit = menuItemPrice - foodCost;
+    const grossProfit = money(menuItemPrice.minus(roundedFoodCost));
 
     // Margin % = (Gross Profit / MenuItem.price) * 100
-    const marginPercentage = menuItemPrice > 0 ? (grossProfit / menuItemPrice) * 100 : 0;
+    const marginPercentage = menuItemPrice.gt(0)
+      ? moneyNumber(grossProfit.dividedBy(menuItemPrice).times(100).toDecimalPlaces(2))
+      : 0;
 
     return {
-      foodCost,
+      foodCost: moneyNumber(roundedFoodCost),
       foodCostPercentage,
-      grossProfit,
+      grossProfit: moneyNumber(grossProfit),
       marginPercentage,
     };
   }

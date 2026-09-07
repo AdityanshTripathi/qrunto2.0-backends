@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma';
+import { moneyNumber } from '../../lib/money';
 
 export type TimelineEventType = 'ORDER' | 'NOTE' | 'REGISTRATION' | 'LOYALTY';
 
@@ -39,12 +40,12 @@ export class TimelineService {
         id: `order-${order.id}`,
         type: 'ORDER',
         title: `Order #${order.orderNumber}`,
-        description: `Total: ₹${order.totalAmount.toLocaleString('en-IN')} (${order.status})`,
+        description: `Total: ₹${moneyNumber(order.totalAmount).toLocaleString('en-IN')} (${order.status})`,
         timestamp: order.createdAt,
         metadata: {
           orderId: order.id,
           status: order.status,
-          total: order.totalAmount,
+          total: moneyNumber(order.totalAmount),
           items: order.orderItems.map((item) => ({
             name: item.itemName,
             quantity: item.quantity,

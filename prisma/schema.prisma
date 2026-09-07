@@ -99,7 +99,7 @@ model Restaurant {
 model SubscriptionPlan {
   id            String         @id @default(uuid())
   name          String
-  price         Float
+  price         Decimal @db.Decimal(15, 2)
   durationDays  Int            @map("duration_days")
   maxTables     Int            @map("max_tables")
   maxMenuItems  Int            @map("max_menu_items")
@@ -107,8 +107,8 @@ model SubscriptionPlan {
   isActive      Boolean        @default(true) @map("is_active")
   createdAt     DateTime       @default(now()) @map("created_at")
   updatedAt     DateTime       @updatedAt @map("updated_at")
-  price6Month   Float          @default(0) @map("price_6_month")
-  price1Year    Float          @default(0) @map("price_1_year")
+  price6Month   Decimal          @default(0) @map("price_6_month") @db.Decimal(15, 2)
+  price1Year    Decimal          @default(0) @map("price_1_year") @db.Decimal(15, 2)
   promoCodes    PromoCode[]
   subscriptions Subscription[]
 
@@ -136,7 +136,7 @@ model PromoCode {
   id           String            @id @default(uuid())
   code         String            @unique
   type         PromoCodeType
-  value        Float
+  value        Decimal @db.Decimal(15, 6)
   usageLimit   Int?              @default(1) @map("usage_limit")
   usageCount   Int               @default(0) @map("usage_count")
   expiresAt    DateTime?         @map("expires_at")
@@ -188,7 +188,7 @@ model MenuItem {
   categoryId              String      @map("category_id")
   name                    String
   description             String?
-  price                   Float
+  price                   Decimal @db.Decimal(15, 2)
   imageUrl                String?     @map("image_url")
   isAvailable             Boolean     @default(true) @map("is_available")
   isFeatured              Boolean     @default(false) @map("is_featured")
@@ -232,9 +232,9 @@ model Order {
   tableId              String?                @map("table_id")
   orderNumber          String                 @map("order_number")
   status               OrderStatus            @default(NEW)
-  subtotal             Float
-  taxAmount            Float                  @map("tax_amount")
-  totalAmount          Float                  @map("total_amount")
+  subtotal             Decimal @db.Decimal(15, 2)
+  taxAmount            Decimal                  @map("tax_amount") @db.Decimal(15, 2)
+  totalAmount          Decimal                  @map("total_amount") @db.Decimal(15, 2)
   notes                String?
   createdAt            DateTime               @default(now()) @map("created_at")
   updatedAt            DateTime               @updatedAt @map("updated_at")
@@ -278,8 +278,8 @@ model OrderItem {
   menuItemId              String?   @map("menu_item_id")
   itemName                String    @map("item_name")
   quantity                Int
-  unitPrice               Float     @map("unit_price")
-  totalPrice              Float     @map("total_price")
+  unitPrice               Decimal     @map("unit_price") @db.Decimal(15, 6)
+  totalPrice              Decimal     @map("total_price") @db.Decimal(15, 2)
   createdAt               DateTime  @default(now()) @map("created_at")
   selected_modifiers_json Json?
   menuItem                MenuItem? @relation(fields: [menuItemId], references: [id])
@@ -296,8 +296,8 @@ model Payment {
   orderId           String?       @map("order_id")
   razorpayOrderId   String?       @map("razorpay_order_id")
   razorpayPaymentId String?       @map("razorpay_payment_id")
-  amount            Float
-  refundedAmount    Float         @default(0) @map("refunded_amount")
+  amount            Decimal @db.Decimal(15, 2)
+  refundedAmount    Decimal         @default(0) @map("refunded_amount") @db.Decimal(15, 2)
   status            PaymentStatus @default(PENDING)
   paymentMethod     String?       @map("payment_method")
   paidAt            DateTime?     @map("paid_at")
@@ -316,7 +316,7 @@ model Transaction {
   id              String     @id @default(uuid())
   restaurantId    String     @map("restaurant_id")
   paymentId       String?    @map("payment_id")
-  amount          Float
+  amount          Decimal @db.Decimal(15, 2)
   transactionType String     @map("transaction_type")
   reference       String?
   createdAt       DateTime   @default(now()) @map("created_at")
@@ -351,10 +351,10 @@ model Invoice {
   restaurantId  String     @map("restaurant_id")
   orderId       String     @unique @map("order_id")
   invoiceNumber String     @map("invoice_number")
-  subtotal      Float
-  discount      Float      @default(0)
-  gst           Float      @default(0)
-  grandTotal    Float      @map("grand_total")
+  subtotal      Decimal @db.Decimal(15, 2)
+  discount      Decimal      @default(0) @db.Decimal(15, 2)
+  gst           Decimal      @default(0) @db.Decimal(15, 2)
+  grandTotal    Decimal      @map("grand_total") @db.Decimal(15, 2)
   paymentMethod String     @map("payment_method")
   paymentStatus String     @map("payment_status")
   createdAt     DateTime   @default(now()) @map("created_at")
@@ -372,8 +372,8 @@ model AnalyticsSnapshot {
   restaurantId      String     @map("restaurant_id")
   date              DateTime
   totalOrders       Int        @default(0) @map("total_orders")
-  totalRevenue      Float      @default(0) @map("total_revenue")
-  averageOrderValue Float      @default(0) @map("average_order_value")
+  totalRevenue      Decimal      @default(0) @map("total_revenue") @db.Decimal(15, 2)
+  averageOrderValue Decimal      @default(0) @map("average_order_value") @db.Decimal(15, 6)
   createdAt         DateTime   @default(now()) @map("created_at")
   restaurant        Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 
@@ -474,16 +474,16 @@ model CustomerRestaurantProfile {
   id               String       @id @default(uuid())
   customerId       String       @map("customer_id")
   restaurantId     String       @map("restaurant_id")
-  totalSpend       Float        @default(0) @map("total_spend")
+  totalSpend       Decimal        @default(0) @map("total_spend") @db.Decimal(15, 2)
   totalOrders      Int          @default(0) @map("total_orders")
-  aov              Float        @default(0) @map("aov")
-  ltv              Float        @default(0) @map("ltv")
+  aov              Decimal        @default(0) @map("aov") @db.Decimal(15, 6)
+  ltv              Decimal        @default(0) @map("ltv") @db.Decimal(15, 6)
   firstVisit       DateTime     @default(now()) @map("first_visit")
   lastVisit        DateTime     @default(now()) @map("last_visit")
   visitFrequency   Float        @default(0) @map("visit_frequency")
   repeatStatus     String       @default("NEW") @map("repeat_status")
   churnProbability Float        @default(0) @map("churn_probability")
-  predictedLtv     Float        @default(0) @map("predicted_ltv")
+  predictedLtv     Decimal        @default(0) @map("predicted_ltv") @db.Decimal(15, 6)
   healthScore      Float        @default(100) @map("health_score")
   engagementScore  Float        @default(0) @map("engagement_score")
   loyaltyTierId    String?      @map("loyalty_tier_id")
@@ -515,7 +515,7 @@ model LoyaltyTier {
   id         String                      @id @default(uuid())
   brandId    String                      @map("brand_id")
   name       String
-  minSpend   Float                       @default(0) @map("min_spend")
+  minSpend   Decimal                       @default(0) @map("min_spend") @db.Decimal(15, 2)
   multiplier Float                       @default(1.0)
   createdAt  DateTime                    @default(now()) @map("created_at")
   updatedAt  DateTime                    @updatedAt @map("updated_at")
@@ -560,9 +560,9 @@ model Coupon {
   brandId           String             @map("brand_id")
   code              String
   discountType      CouponDiscountType @map("discount_type")
-  discountValue     Float              @map("discount_value")
-  minOrderAmount    Float              @default(0) @map("min_order_amount")
-  maxDiscountAmount Float?             @map("max_discount_amount")
+  discountValue     Decimal              @map("discount_value") @db.Decimal(15, 6)
+  minOrderAmount    Decimal              @default(0) @map("min_order_amount") @db.Decimal(15, 2)
+  maxDiscountAmount Decimal?             @map("max_discount_amount") @db.Decimal(15, 2)
   startDate         DateTime           @map("start_date")
   endDate           DateTime           @map("end_date")
   isActive          Boolean            @default(true) @map("is_active")
@@ -701,7 +701,7 @@ model Supplier {
   gstNumber          String?         @map("gst_number")
   address            String?
   creditDays         Int             @default(0) @map("credit_days")
-  outstandingBalance Float           @default(0) @map("outstanding_balance")
+  outstandingBalance Decimal           @default(0) @map("outstanding_balance") @db.Decimal(15, 2)
   isActive           Boolean         @default(true) @map("is_active")
   createdAt          DateTime        @default(now()) @map("created_at")
   updatedAt          DateTime        @updatedAt @map("updated_at")
@@ -726,8 +726,8 @@ model RawMaterial {
   minimumStockLevel  Float               @map("minimum_stock_level")
   maximumStockLevel  Float               @map("maximum_stock_level")
   reorderQuantity    Float               @map("reorder_quantity")
-  purchasePrice      Float               @map("purchase_price")
-  averageCost        Float               @map("average_cost")
+  purchasePrice      Decimal               @map("purchase_price") @db.Decimal(15, 6)
+  averageCost        Decimal               @map("average_cost") @db.Decimal(15, 6)
   lastPurchaseDate   DateTime?           @map("last_purchase_date")
   expiryDate         DateTime?           @map("expiry_date")
   storageLocation    String?             @map("storage_location")
@@ -780,7 +780,7 @@ model StockBatch {
   rawMaterialId String      @map("raw_material_id")
   batchNumber   String      @map("batch_number")
   quantity      Float
-  purchasePrice Float       @map("purchase_price")
+  purchasePrice Decimal       @map("purchase_price") @db.Decimal(15, 6)
   expiryDate    DateTime    @map("expiry_date")
   receivedDate  DateTime    @default(now()) @map("received_date")
   createdAt     DateTime    @default(now()) @map("created_at")
@@ -801,9 +801,9 @@ model PurchaseOrder {
   orderDate            DateTime            @default(now()) @map("order_date")
   expectedDate         DateTime?           @map("expected_date")
   receivedDate         DateTime?           @map("received_date")
-  subtotal             Float
-  gstAmount            Float               @map("gst_amount")
-  grandTotal           Float               @map("grand_total")
+  subtotal             Decimal @db.Decimal(15, 2)
+  gstAmount            Decimal               @map("gst_amount") @db.Decimal(15, 2)
+  grandTotal           Decimal               @map("grand_total") @db.Decimal(15, 2)
   invoiceNumber        String?             @map("invoice_number")
   invoiceAttachmentUrl String?             @map("invoice_attachment_url")
   notes                String?
@@ -824,9 +824,9 @@ model PurchaseOrderItem {
   poId          String        @map("po_id")
   rawMaterialId String        @map("raw_material_id")
   quantity      Float
-  unitPrice     Float         @map("unit_price")
+  unitPrice     Decimal         @map("unit_price") @db.Decimal(15, 6)
   gstPercentage Float         @default(0) @map("gst_percentage")
-  totalCost     Float         @map("total_cost")
+  totalCost     Decimal         @map("total_cost") @db.Decimal(15, 2)
   expiryDate    DateTime?     @map("expiry_date")
   purchaseOrder PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
   rawMaterial   RawMaterial   @relation(fields: [rawMaterialId], references: [id])
@@ -841,7 +841,7 @@ model WastageRecord {
   rawMaterialId String        @map("raw_material_id")
   userId        String        @map("user_id")
   quantity      Float
-  cost          Float
+  cost          Decimal @db.Decimal(15, 2)
   reason        WastageReason
   notes         String?
   wasteDate     DateTime      @default(now()) @map("waste_date")
@@ -961,7 +961,7 @@ model analytics_events {
 model expenses {
   id            String          @id
   restaurant_id String
-  amount        Float
+  amount        Decimal @db.Decimal(15, 2)
   category      ExpenseCategory
   description   String?
   expense_date  DateTime

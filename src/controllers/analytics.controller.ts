@@ -1,5 +1,8 @@
 import type { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
+import { decimal, moneyNumber } from '../lib/money';
+import { analyticsDates, AnalyticsDateError, inventoryAnalytics, financialAnalytics } from '../services/analytics-detail.service';
+import { logSafeError } from '../lib/safe-error';
 
 export class AnalyticsController {
   async getOverview(req: Request, res: Response): Promise<void> {
@@ -101,7 +104,7 @@ export class AnalyticsController {
       recentOrders.forEach((o) => {
         const key = o.createdAt.toISOString().split('T')[0]!;
         if (dailyTrend[key]) {
-          dailyTrend[key].revenue = parseFloat((dailyTrend[key].revenue + o.totalAmount).toFixed(2));
+          dailyTrend[key].revenue = Number(decimal(dailyTrend[key].revenue).plus(o.totalAmount).toFixed(2));
           dailyTrend[key].count += 1;
         }
       });
@@ -275,11 +278,11 @@ export class AnalyticsController {
       const totalOrdersCount = periodStatusGroups.reduce((sum, group) => sum + group._count.id, 0);
       const cancelledCount = statusCount('CANCELLED');
 
-      const grossSales = (completedAggregate._sum.subtotal ?? 0) + (completedAggregate._sum.taxAmount ?? 0);
-      const discountsGiven = completedOrders.reduce((sum, o) => sum + (o.invoice?.discount || 0), 0);
+      const grossSales = moneyNumber(decimal(completedAggregate._sum.subtotal ?? 0).plus(completedAggregate._sum.taxAmount ?? 0));
+      const discountsGiven = moneyNumber(completedOrders.reduce((sum, o) => sum.plus(o.invoice?.discount ?? 0), decimal(0)));
       const refundAmount = refundAggregate._sum.refundedAmount ?? 0;
-      const gstCollected = completedOrders.reduce((sum, o) => sum + (o.invoice?.gst || o.taxAmount || 0), 0);
-      const netSales = grossSales - discountsGiven - refundAmount;
+      const gstCollected = moneyNumber(completedOrders.reduce((sum, o) => sum.plus(o.invoice?.gst ?? o.taxAmount ?? 0), decimal(0)));
+      const netSales = moneyNumber(decimal(grossSales).minus(discountsGiven).minus(refundAmount));
 
       const aov = completedCount > 0 ? parseFloat((netSales / completedCount).toFixed(2)) : 0;
       const totalItems = itemAggregate._sum.quantity ?? 0;
@@ -472,7 +475,7 @@ export class AnalyticsController {
           trendsMap[key] = { timeLabel: label, revenue: 0, orders: 0 };
         }
         const trendItem = trendsMap[key]!;
-        trendItem.revenue = parseFloat((trendItem.revenue + o.totalAmount).toFixed(2));
+        trendItem.revenue = Number(decimal(trendItem.revenue).plus(o.totalAmount).toFixed(2));
         trendItem.orders += 1;
       });
 
@@ -484,7 +487,7 @@ export class AnalyticsController {
         const day = o.createdAt.getDay();
         const hour = o.createdAt.getHours();
         const key = `${day}_${hour}`;
-        heatmapMap[key] = (heatmapMap[key] || 0) + o.totalAmount;
+        heatmapMap[key] = moneyNumber(decimal(heatmapMap[key] ?? 0).plus(o.totalAmount));
       });
       const daysName = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
       const heatmap = [];
@@ -510,20 +513,20 @@ export class AnalyticsController {
 
       completedOrders.forEach(o => {
         const dateStr = o.createdAt.toISOString().slice(0, 10);
-        dailyRevenue[dateStr] = (dailyRevenue[dateStr] || 0) + o.totalAmount;
+        dailyRevenue[dateStr] = moneyNumber(decimal(dailyRevenue[dateStr] ?? 0).plus(o.totalAmount));
 
         const day = o.createdAt.getDay();
         if (day === 0 || day === 6) {
-          weekendRevenue += o.totalAmount;
+          weekendRevenue = moneyNumber(decimal(weekendRevenue).plus(o.totalAmount));
         } else {
-          weekdayRevenue += o.totalAmount;
+          weekdayRevenue = moneyNumber(decimal(weekdayRevenue).plus(o.totalAmount));
         }
 
         const hr = o.createdAt.getHours();
         if (hr >= 11 && hr < 16) {
-          lunchRevenue += o.totalAmount;
+          lunchRevenue = moneyNumber(decimal(lunchRevenue).plus(o.totalAmount));
         } else if (hr >= 18 && hr < 23) {
-          dinnerRevenue += o.totalAmount;
+          dinnerRevenue = moneyNumber(decimal(dinnerRevenue).plus(o.totalAmount));
         }
       });
 
@@ -547,7 +550,7 @@ export class AnalyticsController {
         if (group.menuItemId) {
           const item = menuItemsWithCategory.find(m => m.id === group.menuItemId);
           const catName = item?.category?.name || 'Uncategorized';
-          categoryRevenueMap[catName] = (categoryRevenueMap[catName] || 0) + (group._sum.totalPrice || 0);
+          categoryRevenueMap[catName] = moneyNumber(decimal(categoryRevenueMap[catName] ?? 0).plus(group._sum.totalPrice ?? 0));
         }
       });
 
@@ -779,14 +782,14 @@ export class AnalyticsController {
         let unitCost = 0;
         if (recipe && recipe.ingredients.length > 0) {
           recipe.ingredients.forEach(ing => {
-            unitCost += ing.quantity * (ing.rawMaterial.averageCost || ing.rawMaterial.purchasePrice || 0);
+            unitCost = moneyNumber(decimal(unitCost).plus(decimal(ing.quantity).times(ing.rawMaterial.averageCost ?? ing.rawMaterial.purchasePrice ?? 0)));
           });
         } else {
-          unitCost = itemPrice * 0.35; // fall back to 35% COGS
+          unitCost = moneyNumber(decimal(itemPrice).times('0.35')); // existing estimated COGS policy
         }
 
-        const totalCost = parseFloat((unitCost * quantity).toFixed(2));
-        const profit = parseFloat((totalRevenue - totalCost).toFixed(2));
+        const totalCost = Number(decimal(unitCost).times(quantity).toFixed(2));
+        const profit = Number(decimal(totalRevenue).minus(totalCost).toFixed(2));
 
         // Mock views for conversion rate
         const views = quantity * 4 + Math.floor(Math.random() * 20);
@@ -877,13 +880,13 @@ export class AnalyticsController {
       let totalFreqSum = 0;
 
       profiles.forEach(p => {
-        totalSpendSum += p.totalSpend || 0;
-        totalLtvSum += p.ltv || 0;
+        totalSpendSum = moneyNumber(decimal(totalSpendSum).plus(p.totalSpend ?? 0));
+        totalLtvSum = moneyNumber(decimal(totalLtvSum).plus(p.ltv ?? 0));
         totalFreqSum += p.visitFrequency || 0;
 
         const daysSinceLastVisit = (now.getTime() - p.lastVisit.getTime()) / (1000 * 60 * 60 * 24);
 
-        if (p.totalSpend > 5000) {
+        if (decimal(p.totalSpend).gt(5000)) {
           vip++;
         }
         if (daysSinceLastVisit > 90) {
@@ -1037,7 +1040,7 @@ export class AnalyticsController {
           couponStats[code] = { code, redemptions: 0, revenueLift: 0 };
         }
         couponStats[code].redemptions++;
-        couponStats[code].revenueLift += orderAmount;
+        couponStats[code].revenueLift = moneyNumber(decimal(couponStats[code].revenueLift).plus(orderAmount));
       });
 
       const couponRoi = Object.values(couponStats).sort((a, b) => b.revenueLift - a.revenueLift);
@@ -1068,262 +1071,26 @@ export class AnalyticsController {
   }
 
   async getInventory(req: Request, res: Response): Promise<void> {
-    try {
-      if (!req.user) {
-        res.status(401).json({ error: 'Authentication required' });
-        return;
-      }
-      const restaurantId = req.user.restaurantId as string;
-      if (!restaurantId) {
-        res.status(400).json({ error: 'No restaurant linked to this session' });
-        return;
-      }
-
-      const start = req.query.startDate ? new Date(req.query.startDate as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      const end = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
-      start.setHours(0, 0, 0, 0);
-      end.setHours(23, 59, 59, 999);
-
-      // 1. Fetch raw materials to compute total stock value
-      const rawMaterials = await prisma.rawMaterial.findMany({
-        where: { restaurantId, status: 'ACTIVE' }
-      });
-
-      let totalStockValue = 0;
-      let lowStockCount = 0;
-      rawMaterials.forEach(rm => {
-        const cost = rm.averageCost || rm.purchasePrice || 0;
-        totalStockValue += rm.currentStock * cost;
-        if (rm.currentStock <= rm.minimumStockLevel) {
-          lowStockCount++;
-        }
-      });
-
-      // 2. Fetch wastage records for cost
-      const wastage = await prisma.wastageRecord.aggregate({
-        where: {
-          restaurantId,
-          wasteDate: { gte: start, lte: end }
-        },
-        _sum: {
-          cost: true
-        }
-      });
-
-      const wastageCost = wastage._sum.cost || 0;
-
-      // 3. Fetch consumption via StockLedger SALE_DEDUCTION
-      const ledger = await prisma.stockLedger.findMany({
-        where: {
-          restaurantId,
-          actionType: 'SALE_DEDUCTION',
-          createdAt: { gte: start, lte: end }
-        },
-        include: {
-          rawMaterial: true
-        }
-      });
-
-      const consumptionMap: Record<string, { materialName: string; quantity: number; unit: string; cost: number }> = {};
-      ledger.forEach(item => {
-        if (!item.rawMaterial) return;
-        const name = item.rawMaterial.name;
-        const unit = item.rawMaterial.unit;
-        const unitCost = item.rawMaterial.averageCost || item.rawMaterial.purchasePrice || 0;
-        const qty = Math.abs(item.quantity);
-        const cost = qty * unitCost;
-
-        if (!consumptionMap[name]) {
-          consumptionMap[name] = { materialName: name, quantity: 0, unit, cost: 0 };
-        }
-        consumptionMap[name].quantity += qty;
-        consumptionMap[name].cost += cost;
-      });
-
-      const consumption = Object.values(consumptionMap).sort((a, b) => b.cost - a.cost);
-
-      if (consumption.length === 0) {
-        consumption.push(
-          { materialName: 'Paneer', quantity: 80, unit: 'KG', cost: 24000 },
-          { materialName: 'Chicken Breast', quantity: 150, unit: 'KG', cost: 37500 },
-          { materialName: 'Cooking Oil', quantity: 120, unit: 'Liters', cost: 18000 },
-          { materialName: 'Basmati Rice', quantity: 200, unit: 'KG', cost: 16000 }
-        );
-      }
-
-      const turnover = consumption.map(c => {
-        const match = rawMaterials.find(rm => rm.name === c.materialName);
-        const stockVal = match ? (match.currentStock * (match.averageCost || match.purchasePrice || 0)) : 1000;
-        const ratio = parseFloat((c.cost / (stockVal || 1)).toFixed(1));
-        return {
-          materialName: c.materialName,
-          turnoverRatio: ratio > 0 ? ratio : 1.5
-        };
-      });
-
-      res.status(200).json({
-        value: {
-          totalStockValue: parseFloat(totalStockValue.toFixed(2)) || 145000,
-          wastageCost: parseFloat(wastageCost.toFixed(2)) || 3400
-        },
-        consumption,
-        turnover,
-        lowStockCount,
-        deadStockCount: Math.max(0, rawMaterials.length - consumption.length)
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
+    return this.getDetail(req, res, inventoryAnalytics, 'inventory');
   }
 
   async getFinancials(req: Request, res: Response): Promise<void> {
+    return this.getDetail(req, res, financialAnalytics, 'financials');
+  }
+
+  private async getDetail(req: Request, res: Response,
+    query: (restaurantId: string, range: ReturnType<typeof analyticsDates>) => Promise<unknown>, stage: string,
+  ): Promise<void> {
+    if (!req.user) return void res.status(401).json({ error: 'Authentication required' });
+    const restaurantId = req.user.restaurantId;
+    if (!restaurantId) return void res.status(400).json({ error: 'No restaurant linked to this session' });
     try {
-      if (!req.user) {
-        res.status(401).json({ error: 'Authentication required' });
-        return;
-      }
-      const restaurantId = req.user.restaurantId as string;
-      if (!restaurantId) {
-        res.status(400).json({ error: 'No restaurant linked to this session' });
-        return;
-      }
-
-      const start = req.query.startDate ? new Date(req.query.startDate as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      const end = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
-      start.setHours(0, 0, 0, 0);
-      end.setHours(23, 59, 59, 999);
-
-      // 1. Fetch completed orders for financial sales and taxes
-      const orders = await prisma.order.findMany({
-        where: {
-          restaurantId,
-          status: { in: ['SERVED', 'PAID'] },
-          createdAt: { gte: start, lte: end }
-        },
-        include: {
-          payments: true
-        }
-      });
-
-      let gross = 0;
-      let gst = 0;
-      let discounts = 0;
-      let refunds = 0;
-
-      orders.forEach(o => {
-        gross += o.subtotal + o.taxAmount;
-        gst += o.taxAmount;
-        
-        if (o.notes) {
-          const discountMatch = o.notes.match(/₹(\d+(?:\.\d+)?)\s*discount/i);
-          if (discountMatch && discountMatch[1]) {
-            discounts += parseFloat(discountMatch[1]);
-          }
-        }
-
-        o.payments.forEach(p => {
-          if (p.status === 'SUCCESS') {
-            refunds += p.refundedAmount || 0;
-          }
-        });
-      });
-
-      const net = gross - discounts - refunds;
-
-      // 2. Fetch expenses
-      const expenseList = await prisma.expenses.findMany({
-        where: {
-          restaurant_id: restaurantId,
-          expense_date: { gte: start, lte: end }
-        }
-      });
-
-      let totalExpenses = 0;
-      const expenseMap: Record<string, number> = {
-        OPERATIONAL: 0,
-        SALARY: 0,
-        RENT: 0,
-        UTILITIES: 0,
-        MARKETING: 0,
-        DEPRECIATION: 0,
-        OTHER: 0
-      };
-
-      expenseList.forEach(exp => {
-        totalExpenses += exp.amount;
-        expenseMap[exp.category] = (expenseMap[exp.category] || 0) + exp.amount;
-      });
-
-      const profit = net - totalExpenses;
-      const grossMargin = net > 0 ? parseFloat(((profit / net) * 100).toFixed(1)) : 0;
-
-      const expenseBreakdown = Object.entries(expenseMap)
-        .map(([category, amount]) => ({
-          category: category.toLowerCase(),
-          amount
-        }))
-        .filter(item => item.amount > 0);
-
-      if (expenseBreakdown.length === 0) {
-        expenseBreakdown.push(
-          { category: 'salary', amount: 45000 },
-          { category: 'rent', amount: 25000 },
-          { category: 'utilities', amount: 8000 },
-          { category: 'operational', amount: 12000 }
-        );
-        totalExpenses = 90000;
-      }
-
-      // 3. Payment Methods Split
-      const payments = await prisma.payment.findMany({
-        where: {
-          restaurantId,
-          status: 'SUCCESS',
-          paidAt: { gte: start, lte: end }
-        },
-        select: {
-          amount: true,
-          paymentMethod: true
-        }
-      });
-
-      const paymentMap = {
-        upi: 0,
-        cash: 0,
-        card: 0
-      };
-
-      payments.forEach(p => {
-        const method = (p.paymentMethod || 'upi').toLowerCase();
-        if (method.includes('upi')) {
-          paymentMap.upi += p.amount;
-        } else if (method.includes('cash')) {
-          paymentMap.cash += p.amount;
-        } else {
-          paymentMap.card += p.amount;
-        }
-      });
-
-      if (paymentMap.upi === 0 && paymentMap.cash === 0 && paymentMap.card === 0) {
-        paymentMap.upi = net * 0.7;
-        paymentMap.cash = net * 0.2;
-        paymentMap.card = net * 0.1;
-      }
-
-      res.status(200).json({
-        summary: {
-          gross: parseFloat(gross.toFixed(2)),
-          net: parseFloat(net.toFixed(2)),
-          expenses: parseFloat(totalExpenses.toFixed(2)),
-          profit: parseFloat(profit.toFixed(2)),
-          gst: parseFloat(gst.toFixed(2)),
-          grossMargin
-        },
-        paymentMethods: paymentMap,
-        expenseBreakdown
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      const range = analyticsDates(req.query.startDate, req.query.endDate);
+      res.status(200).json(await query(restaurantId, range));
+    } catch (error) {
+      if (error instanceof AnalyticsDateError) return void res.status(400).json({ error: error.message });
+      logSafeError(stage, error, 'analytics');
+      res.status(500).json({ error: 'Analytics unavailable' });
     }
   }
 }

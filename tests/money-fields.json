@@ -1,0 +1,268 @@
+[
+  {
+    "model": "SubscriptionPlan",
+    "name": "price",
+    "table": "subscription_plans",
+    "column": "price",
+    "scale": 2
+  },
+  {
+    "model": "SubscriptionPlan",
+    "name": "price6Month",
+    "table": "subscription_plans",
+    "column": "price_6_month",
+    "scale": 2
+  },
+  {
+    "model": "SubscriptionPlan",
+    "name": "price1Year",
+    "table": "subscription_plans",
+    "column": "price_1_year",
+    "scale": 2
+  },
+  {
+    "model": "PromoCode",
+    "name": "value",
+    "table": "promo_codes",
+    "column": "value",
+    "scale": 6
+  },
+  {
+    "model": "MenuItem",
+    "name": "price",
+    "table": "menu_items",
+    "column": "price",
+    "scale": 2
+  },
+  {
+    "model": "Order",
+    "name": "subtotal",
+    "table": "orders",
+    "column": "subtotal",
+    "scale": 2
+  },
+  {
+    "model": "Order",
+    "name": "taxAmount",
+    "table": "orders",
+    "column": "tax_amount",
+    "scale": 2
+  },
+  {
+    "model": "Order",
+    "name": "totalAmount",
+    "table": "orders",
+    "column": "total_amount",
+    "scale": 2
+  },
+  {
+    "model": "OrderItem",
+    "name": "unitPrice",
+    "table": "order_items",
+    "column": "unit_price",
+    "scale": 6
+  },
+  {
+    "model": "OrderItem",
+    "name": "totalPrice",
+    "table": "order_items",
+    "column": "total_price",
+    "scale": 2
+  },
+  {
+    "model": "Payment",
+    "name": "amount",
+    "table": "payments",
+    "column": "amount",
+    "scale": 2
+  },
+  {
+    "model": "Payment",
+    "name": "refundedAmount",
+    "table": "payments",
+    "column": "refunded_amount",
+    "scale": 2
+  },
+  {
+    "model": "Transaction",
+    "name": "amount",
+    "table": "transactions",
+    "column": "amount",
+    "scale": 2
+  },
+  {
+    "model": "Invoice",
+    "name": "subtotal",
+    "table": "invoices",
+    "column": "subtotal",
+    "scale": 2
+  },
+  {
+    "model": "Invoice",
+    "name": "discount",
+    "table": "invoices",
+    "column": "discount",
+    "scale": 2
+  },
+  {
+    "model": "Invoice",
+    "name": "gst",
+    "table": "invoices",
+    "column": "gst",
+    "scale": 2
+  },
+  {
+    "model": "Invoice",
+    "name": "grandTotal",
+    "table": "invoices",
+    "column": "grand_total",
+    "scale": 2
+  },
+  {
+    "model": "AnalyticsSnapshot",
+    "name": "totalRevenue",
+    "table": "analytics_snapshots",
+    "column": "total_revenue",
+    "scale": 2
+  },
+  {
+    "model": "AnalyticsSnapshot",
+    "name": "averageOrderValue",
+    "table": "analytics_snapshots",
+    "column": "average_order_value",
+    "scale": 6
+  },
+  {
+    "model": "CustomerRestaurantProfile",
+    "name": "totalSpend",
+    "table": "customer_restaurant_profiles",
+    "column": "total_spend",
+    "scale": 2
+  },
+  {
+    "model": "CustomerRestaurantProfile",
+    "name": "aov",
+    "table": "customer_restaurant_profiles",
+    "column": "aov",
+    "scale": 6
+  },
+  {
+    "model": "CustomerRestaurantProfile",
+    "name": "ltv",
+    "table": "customer_restaurant_profiles",
+    "column": "ltv",
+    "scale": 6
+  },
+  {
+    "model": "CustomerRestaurantProfile",
+    "name": "predictedLtv",
+    "table": "customer_restaurant_profiles",
+    "column": "predicted_ltv",
+    "scale": 6
+  },
+  {
+    "model": "LoyaltyTier",
+    "name": "minSpend",
+    "table": "loyalty_tiers",
+    "column": "min_spend",
+    "scale": 2
+  },
+  {
+    "model": "Coupon",
+    "name": "discountValue",
+    "table": "coupons",
+    "column": "discount_value",
+    "scale": 6
+  },
+  {
+    "model": "Coupon",
+    "name": "minOrderAmount",
+    "table": "coupons",
+    "column": "min_order_amount",
+    "scale": 2
+  },
+  {
+    "model": "Coupon",
+    "name": "maxDiscountAmount",
+    "table": "coupons",
+    "column": "max_discount_amount",
+    "scale": 2
+  },
+  {
+    "model": "Supplier",
+    "name": "outstandingBalance",
+    "table": "suppliers",
+    "column": "outstanding_balance",
+    "scale": 2
+  },
+  {
+    "model": "RawMaterial",
+    "name": "purchasePrice",
+    "table": "raw_materials",
+    "column": "purchase_price",
+    "scale": 6
+  },
+  {
+    "model": "RawMaterial",
+    "name": "averageCost",
+    "table": "raw_materials",
+    "column": "average_cost",
+    "scale": 6
+  },
+  {
+    "model": "StockBatch",
+    "name": "purchasePrice",
+    "table": "stock_batches",
+    "column": "purchase_price",
+    "scale": 6
+  },
+  {
+    "model": "PurchaseOrder",
+    "name": "subtotal",
+    "table": "purchase_orders",
+    "column": "subtotal",
+    "scale": 2
+  },
+  {
+    "model": "PurchaseOrder",
+    "name": "gstAmount",
+    "table": "purchase_orders",
+    "column": "gst_amount",
+    "scale": 2
+  },
+  {
+    "model": "PurchaseOrder",
+    "name": "grandTotal",
+    "table": "purchase_orders",
+    "column": "grand_total",
+    "scale": 2
+  },
+  {
+    "model": "PurchaseOrderItem",
+    "name": "unitPrice",
+    "table": "purchase_order_items",
+    "column": "unit_price",
+    "scale": 6
+  },
+  {
+    "model": "PurchaseOrderItem",
+    "name": "totalCost",
+    "table": "purchase_order_items",
+    "column": "total_cost",
+    "scale": 2
+  },
+  {
+    "model": "WastageRecord",
+    "name": "cost",
+    "table": "wastage_records",
+    "column": "cost",
+    "scale": 2
+  },
+  {
+    "model": "expenses",
+    "name": "amount",
+    "table": "expenses",
+    "column": "amount",
+    "scale": 2
+  }
+]

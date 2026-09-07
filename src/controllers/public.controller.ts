@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { decimal, money, moneyNumber, lineTotal, percentageMoney } from '../lib/money';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { ProfilerService } from '../services/crm/profiler.service';
@@ -217,19 +218,19 @@ export class PublicController {
 
       for (const reqItem of items) {
         const dbItem = dbMenuItems.find((m) => m.id === reqItem.menuItemId)!;
-        const itemTotal = dbItem.price * reqItem.quantity;
-        newSubtotal += itemTotal;
+        const itemTotal = moneyNumber(lineTotal(dbItem.price, reqItem.quantity));
+        newSubtotal = moneyNumber(decimal(newSubtotal).plus(itemTotal));
         orderItemsData.push({
           menuItemId: dbItem.id,
           itemName: dbItem.name,
           quantity: reqItem.quantity,
-          unitPrice: dbItem.price,
+          unitPrice: moneyNumber(dbItem.price),
           totalPrice: itemTotal,
         });
       }
 
-      const newTaxAmount = parseFloat(((newSubtotal * taxPercentage) / 100).toFixed(2));
-      const newTotalAmount = parseFloat((newSubtotal + newTaxAmount).toFixed(2));
+      const newTaxAmount = moneyNumber(percentageMoney(newSubtotal, taxPercentage));
+      const newTotalAmount = moneyNumber(money(decimal(newSubtotal).plus(newTaxAmount)));
 
       // Link customer profile if phone is provided
       let customerId: string | undefined = undefined;
@@ -262,9 +263,9 @@ export class PublicController {
           });
 
           // Update order totals
-          const updatedSubtotal = parseFloat((existingOrder.subtotal + newSubtotal).toFixed(2));
-          const updatedTaxAmount = parseFloat((existingOrder.taxAmount + newTaxAmount).toFixed(2));
-          const updatedTotalAmount = parseFloat((existingOrder.totalAmount + newTotalAmount).toFixed(2));
+          const updatedSubtotal = moneyNumber(money(decimal(existingOrder.subtotal).plus(newSubtotal)));
+          const updatedTaxAmount = moneyNumber(money(decimal(existingOrder.taxAmount).plus(newTaxAmount)));
+          const updatedTotalAmount = moneyNumber(money(decimal(existingOrder.totalAmount).plus(newTotalAmount)));
 
           const updatedOrder = await tx.order.update({
             where: { id: existingOrder.id },
@@ -315,10 +316,10 @@ export class PublicController {
             if (!account || account.pointsBalance < redeemPoints) {
               throw new Error(`Insufficient points balance. Available: ${account?.pointsBalance || 0}, Requested: ${redeemPoints}`);
             }
-            pointsDiscount = Math.min(newTotalAmount, redeemPoints);
+            pointsDiscount = moneyNumber(decimal(newTotalAmount).lt(redeemPoints) ? newTotalAmount : redeemPoints);
           }
 
-          let remainingAmount = Math.max(0, newTotalAmount - pointsDiscount);
+          let remainingAmount = moneyNumber(decimal(newTotalAmount).minus(pointsDiscount));
 
           let couponDiscount = 0;
           if (couponCode && couponCode.trim() !== '' && customerId) {
@@ -327,7 +328,7 @@ export class PublicController {
             couponDiscount = validation.discountAmount;
           }
 
-          const finalTotalAmount = parseFloat((remainingAmount - couponDiscount).toFixed(2));
+          const finalTotalAmount = moneyNumber(money(decimal(remainingAmount).minus(couponDiscount)));
           
           let orderNotes = notes || '';
           if (pointsDiscount > 0) {
@@ -399,7 +400,7 @@ export class PublicController {
           orderId: order.id,
           orderNumber: order.orderNumber,
           tableNumber: order.table?.tableNumber,
-          totalAmount: order.totalAmount,
+          totalAmount: moneyNumber(order.totalAmount),
           itemCount: order.orderItems.length,
           createdAt: order.createdAt,
         });

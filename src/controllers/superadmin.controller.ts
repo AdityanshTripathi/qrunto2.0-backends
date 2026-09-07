@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
+import { decimal } from '../lib/money';
 import jwt from 'jsonwebtoken';
 import { UserRole, PaymentStatus, PasscodeResetStatus, SubscriptionStatus } from '@prisma/client';
 
@@ -32,7 +33,7 @@ export class SuperAdminController {
       let trialRestaurants = 0;
       let paidRestaurants = 0;
       activeSubs.forEach((sub) => {
-        if (sub.plan.price === 0) {
+        if (decimal(sub.plan.price).isZero()) {
           trialRestaurants++;
         } else {
           paidRestaurants++;
@@ -56,7 +57,7 @@ export class SuperAdminController {
       });
 
       // 4. Averages
-      const averageRevenuePerRest = activeRestaurants > 0 ? parseFloat((monthlyRevenue / activeRestaurants).toFixed(2)) : 0;
+      const averageRevenuePerRest = activeRestaurants > 0 ? Number(decimal(monthlyRevenue).dividedBy(activeRestaurants).toFixed(2)) : 0;
 
       // 5. Subscription growth / distribution
       const planDistribution = await prisma.subscriptionPlan.findMany({

@@ -15,5 +15,7 @@ router.get('/orders', (req, res) => analyticsController.getOrders(req, res));
 router.get('/menu', (req, res) => analyticsController.getMenu(req, res));
 router.get('/customers', (req, res) => analyticsController.getCustomers(req, res));
 router.get('/loyalty', (req, res) => analyticsController.getLoyalty(req, res));
+router.get('/inventory', (req, res) => analyticsController.getInventory(req, res));
+router.get('/financials', (req, res) => analyticsController.getFinancials(req, res));
 
 export default router;

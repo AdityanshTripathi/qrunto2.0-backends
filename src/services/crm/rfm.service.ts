@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma';
+import { moneyNumber } from '../../lib/money';
 
 export interface RFMResult {
   customerId: string;
@@ -33,7 +34,7 @@ export class RFMService {
       const lastVisit = profile?.lastVisit ? new Date(profile.lastVisit) : c.createdAt;
       const recencyDays = Math.max(0, Math.floor((now.getTime() - lastVisit.getTime()) / (1000 * 60 * 60 * 24)));
       const frequency = profile?.totalOrders ?? 0;
-      const monetary = profile?.totalSpend ?? 0;
+      const monetary = moneyNumber(profile?.totalSpend ?? 0);
 
       return {
         customerId: c.id,

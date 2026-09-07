@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma';
+import { decimal } from '../../lib/money';
 import { StockTransfer, TransferStatus, LedgerActionType, RawMaterialStatus } from '@prisma/client';
 
 export class TransferService {
@@ -185,7 +186,7 @@ export class TransferService {
         // New Average Cost = ((Current Stock * Current Avg Cost) + (Transfer Qty * Source Avg Cost)) / (Current Stock + Transfer Qty)
         let newAverageCost = destMaterial.averageCost;
         if (newStock > 0) {
-          newAverageCost = ((previousStock * destMaterial.averageCost) + (item.quantity * sourceMaterial.averageCost)) / newStock;
+          newAverageCost = decimal(previousStock).times(destMaterial.averageCost).plus(decimal(item.quantity).times(sourceMaterial.averageCost)).dividedBy(newStock).toDecimalPlaces(6);
         }
 
         await tx.rawMaterial.update({

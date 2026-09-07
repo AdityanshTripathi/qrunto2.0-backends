@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma';
+import { decimal, moneyNumber } from '../../lib/money';
 import { LedgerActionType, RawMaterialStatus } from '@prisma/client';
 
 export class ReportService {
@@ -61,7 +62,7 @@ export class ReportService {
     let outOfStockItems = 0;
 
     for (const rm of rawMaterials) {
-      totalValue += rm.currentStock * rm.averageCost;
+      totalValue = moneyNumber(decimal(totalValue).plus(decimal(rm.currentStock).times(rm.averageCost)));
       if (rm.currentStock <= rm.minimumStockLevel) lowStockItems++;
       if (rm.currentStock <= 0) outOfStockItems++;
     }
@@ -73,13 +74,13 @@ export class ReportService {
     let todayConsumption = 0;
     for (const entry of ledgersToday) {
       const avgCost = entry.rawMaterial?.averageCost || 0;
-      todayConsumption += Math.abs(entry.quantity) * avgCost;
+      todayConsumption = moneyNumber(decimal(todayConsumption).plus(decimal(Math.abs(entry.quantity)).times(avgCost)));
     }
 
     let todayPurchases = 0;
     for (const po of receivedPOsToday) {
       for (const item of po.items) {
-        todayPurchases += item.quantity * item.unitPrice;
+        todayPurchases = moneyNumber(decimal(todayPurchases).plus(decimal(item.quantity).times(item.unitPrice)));
       }
     }
 
@@ -130,7 +131,7 @@ export class ReportService {
     for (const entry of ledgers) {
       const dateStr = entry.createdAt.toISOString().slice(0, 10);
       const avgCost = entry.rawMaterial?.averageCost || 0;
-      const cost = Math.abs(entry.quantity) * avgCost;
+      const cost = moneyNumber(decimal(Math.abs(entry.quantity)).times(avgCost));
 
       dailyData[dateStr] = (dailyData[dateStr] || 0) + cost;
 

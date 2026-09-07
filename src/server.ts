@@ -38,11 +38,13 @@ import { logSafeError, logStructured } from './lib/safe-error';
 import { requestIdMiddleware, traceHttpRequest } from './middlewares/request-id.middleware';
 import { installProcessMonitoring } from './lib/process-monitoring';
 import { joinTenantRoom } from './lib/socket-room';
+import { decimalJsonMiddleware } from './middlewares/decimal-json.middleware';
 
 
 const app = express();
 installProcessMonitoring();
 app.use(requestIdMiddleware);
+app.use(decimalJsonMiddleware);
 // Complete preflight before any Redis, authentication, or route dependency waits.
 app.use(cors(corsOptions));
 const server = http.createServer(app);

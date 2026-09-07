@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { prisma } from '../lib/prisma';
+import { decimal, moneyNumber } from '../lib/money';
 
 async function run() {
   console.log('Starting CRM Customer and Order backfill script...');
@@ -103,8 +104,8 @@ async function run() {
 
         // Calculate outlet-specific metrics
         const totalOrders = customerOrders.length;
-        const totalSpend = customerOrders.reduce((sum, o) => sum + o.totalAmount, 0);
-        const aov = totalOrders > 0 ? totalSpend / totalOrders : 0;
+        const totalSpend = moneyNumber(customerOrders.reduce((sum, o) => sum.plus(o.totalAmount), decimal(0)));
+        const aov = totalOrders > 0 ? decimal(totalSpend).dividedBy(totalOrders).toDecimalPlaces(6) : decimal(0);
         const firstOrder = customerOrders[0];
         const firstVisit = firstOrder ? firstOrder.createdAt : new Date();
         const lastVisit = latestOrder.createdAt;
