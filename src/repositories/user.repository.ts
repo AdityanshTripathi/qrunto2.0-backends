@@ -1,5 +1,5 @@
 import { prisma } from '../lib/prisma';
-import { User, UserRole, Restaurant } from '@prisma/client';
+import { User, Restaurant } from '@prisma/client';
 
 export class UserRepository {
   async findByEmail(email: string): Promise<(User & { restaurants: Restaurant[] }) | null> {

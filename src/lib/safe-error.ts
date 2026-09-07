@@ -19,9 +19,9 @@ export function safeError(error: unknown): { code: string; message: string } {
   if (error instanceof StageError) return { code: error.code, message: error.message };
   if (error instanceof Error) {
     const code = (error as Error & { code?: unknown }).code;
-    if (typeof code === 'string' && messages[code]) return { code, message: messages[code]! };
+    if (typeof code === 'string' && Object.prototype.hasOwnProperty.call(messages, code)) return { code, message: messages[code]! };
     const prefix = error.message.split(' ')[0]!;
-    if (messages[prefix]) return { code: prefix, message: messages[prefix]! };
+    if (Object.prototype.hasOwnProperty.call(messages, prefix)) return { code: prefix, message: messages[prefix]! };
     if (error.message === 'Redis unavailable: configure REDIS_URL')
       return { code: 'REDIS_CONFIG_MISSING', message: 'Redis configuration missing' };
     if (error.message === 'Invalid REDIS_URL: expected a redis:// or rediss:// connection URL')

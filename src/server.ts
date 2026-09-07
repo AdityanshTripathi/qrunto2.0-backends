@@ -37,6 +37,7 @@ import { checkReadiness } from './services/health.service';
 import { logSafeError, logStructured } from './lib/safe-error';
 import { requestIdMiddleware, traceHttpRequest } from './middlewares/request-id.middleware';
 import { installProcessMonitoring } from './lib/process-monitoring';
+import { joinTenantRoom } from './lib/socket-room';
 
 
 const app = express();
@@ -102,7 +103,7 @@ io.on('connection', (socket) => {
     { socketId: socket.id });
 
   const restaurantId = socket.data['user']?.restaurantId as string | undefined;
-  if (restaurantId) socket.join(restaurantId);
+  if (restaurantId) void joinTenantRoom(socket, restaurantId);
 
   socket.on('disconnect', (reason) => {
     logStructured('info', 'socket.io', 'connection', 'disconnected', 'Socket client disconnected',

@@ -1,7 +1,7 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import { UserRepository } from '../repositories/user.repository';
-import { User, UserRole, Restaurant } from '@prisma/client';
+import { UserRole, Restaurant } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 
 const userRepository = new UserRepository();
@@ -25,11 +25,11 @@ export interface UserResponse {
   name: string;
   email: string;
   role: UserRole | 'WAITER';
-  restaurants: any[];
+  restaurants: Pick<Restaurant, 'id' | 'name' | 'slug' | 'logoUrl'>[];
 }
 
 export class AuthService {
-  private generateAccessToken(user: { id: string; email: string; role: any; restaurantId?: string | undefined }): string {
+  private generateAccessToken(user: { id: string; email: string; role: UserRole | 'WAITER'; restaurantId?: string | undefined }): string {
     const restaurantId = user.restaurantId || undefined;
     return jwt.sign(
       {

@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "nodemon src/server.ts",
     "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit --allowUnreachableCode false --allowUnusedLabels false --noFallthroughCasesInSwitch",
+    "lint:debt": "npm run lint -- --noUnusedLocals --noUnusedParameters",
     "start": "node dist/server.js",
     "postinstall": "prisma generate",
     "db:check": "ts-node src/scripts/check-database-connection.ts",
