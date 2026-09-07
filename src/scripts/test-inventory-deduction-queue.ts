@@ -92,6 +92,9 @@ async function orderToQueueIntegration(): Promise<void> {
   const jobs: Array<[string, string]> = [];
   let reads = 0;
   const tx = {
+    payment: { findFirst: async () => null, create: async () => ({ id: 'payment-1' }) },
+    transaction: { create: async () => ({}) },
+    restaurant: { findUnique: async () => null },
     order: {
       findFirst: async () => ({ id: 'order-1', status: reads++ ? OrderStatus.PAID : OrderStatus.READY, customerId: null, totalAmount: 100 }),
       updateMany: async () => ({ count: 1 }),
@@ -100,7 +103,7 @@ async function orderToQueueIntegration(): Promise<void> {
   mutablePrisma.$transaction = async callback => callback(tx);
   DeductionQueueService.enqueueDeduction = async (orderId, restaurantId) => { jobs.push([orderId, restaurantId]); };
   try {
-    await new OrderService().updateOrderStatus('order-1', 'restaurant-1', OrderStatus.PAID);
+    await new OrderService().payOrder('order-1', 'restaurant-1', 'CASH');
     assert.deepEqual(jobs, [['order-1', 'restaurant-1']]);
   } finally {
     mutablePrisma.$transaction = originalTransaction;

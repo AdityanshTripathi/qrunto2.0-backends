@@ -42,7 +42,7 @@ export class OrderService {
   }
 
   async updateOrderStatus(id: string, restaurantId: string, newStatus: OrderStatus): Promise<OrderWithDetails> {
-    let triggerDeduction = false;
+    if (newStatus === OrderStatus.PAID) throw new Error('Use the cash settlement endpoint to record payment');
     const result = await prisma.$transaction(async (tx) => {
       const order = await tx.order.findFirst({
         where: { id, restaurantId },
@@ -60,26 +60,12 @@ export class OrderService {
 
       // Update status
       const update = await tx.order.updateMany({
-        where: { id, restaurantId },
+        where: { id, restaurantId, status: order.status },
         data: { status: newStatus },
       });
       if (update.count !== 1) throw new Error('Order not found or unauthorized');
 
-      if (newStatus === OrderStatus.PAID) {
-        triggerDeduction = true;
-      }
-
-      // Loyalty triggers
-      if (newStatus === OrderStatus.PAID && order.customerId) {
-        const restaurant = await tx.restaurant.findUnique({
-          where: { id: restaurantId },
-          select: { brandId: true },
-        });
-        if (restaurant?.brandId) {
-          const loyaltyService = new LoyaltyService();
-          await loyaltyService.earnPoints(order.customerId, restaurant.brandId, order.totalAmount, order.id, tx);
-        }
-      } else if (newStatus === OrderStatus.CANCELLED) {
+      if (newStatus === OrderStatus.CANCELLED) {
         const loyaltyService = new LoyaltyService();
         await loyaltyService.refundPointsForOrder(order.id, tx);
       }
@@ -92,10 +78,6 @@ export class OrderService {
       if (!updated) throw new Error('Order not found after update');
       return updated as unknown as OrderWithDetails;
     });
-
-    if (triggerDeduction) {
-      await DeductionQueueService.enqueueDeduction(id, restaurantId);
-    }
 
     return result;
   }
@@ -136,7 +118,7 @@ export class OrderService {
 
       // 3. Update order
       const update = await tx.order.updateMany({
-        where: { id, restaurantId },
+        where: { id, restaurantId, status: order.status, totalAmount: order.totalAmount },
         data: {
           totalAmount: newTotalAmount,
           notes: orderNotes,
@@ -159,6 +141,8 @@ export class OrderService {
   }
 
   async payOrder(id: string, restaurantId: string, paymentMethod: string): Promise<OrderWithDetails> {
+    // Staff can attest cash receipt; electronic methods require a provider that is not configured.
+    if (paymentMethod !== 'CASH') throw new Error('Only cash settlement is available');
     let triggerDeduction = false;
     const result = await prisma.$transaction(async (tx) => {
       const order = await tx.order.findFirst({
@@ -167,8 +151,32 @@ export class OrderService {
       });
       if (!order) throw new Error('Order not found or unauthorized');
 
+      if (order.status === OrderStatus.CANCELLED) throw new Error('Cannot settle a cancelled order');
+      if (decimal(order.totalAmount).lt(0)) throw new Error('Invalid order amount');
+      // Existing partial/refunded payments require reconciliation, never another full charge.
+      const existing = await tx.payment.findFirst({
+        where: { orderId: id, restaurantId, status: { in: ['SUCCESS', 'REFUNDED'] } },
+      });
+      if (existing && (existing.status === 'REFUNDED' || decimal(existing.refundedAmount ?? 0).gt(0))) {
+        throw new Error('Refunded payment cannot be settled again');
+      }
       if (order.status === OrderStatus.PAID) {
+        if (!existing || !decimal(existing.amount).eq(order.totalAmount)) throw new Error('Payment reconciliation required');
+        triggerDeduction = true; // Retry the existing idempotent queue after a prior enqueue failure.
         return order as unknown as OrderWithDetails;
+      }
+
+      if (existing) throw new Error('Payment reconciliation required');
+      // Claim the order before financial writes. PostgreSQL rechecks this predicate after
+      // waiting for a concurrent update; only one transaction can create the payment.
+      const claim = await tx.order.updateMany({
+        where: { id, restaurantId, status: order.status, totalAmount: order.totalAmount },
+        data: { status: OrderStatus.PAID },
+      });
+      if (claim.count !== 1) {
+        const current = await tx.order.findFirst({ where: { id, restaurantId }, include: { table: true, orderItems: true } });
+        if (current?.status === OrderStatus.PAID) return current as unknown as OrderWithDetails;
+        throw new Error('Order changed; reload before settling');
       }
 
       // 1. Create Payment record
@@ -178,7 +186,7 @@ export class OrderService {
           orderId: order.id,
           amount: order.totalAmount,
           status: 'SUCCESS',
-          paymentMethod: paymentMethod || 'CASH',
+          paymentMethod: 'CASH',
           paidAt: new Date(),
         },
       });
@@ -194,12 +202,6 @@ export class OrderService {
         },
       });
 
-      // 3. Update Order status to PAID
-      const update = await tx.order.updateMany({
-        where: { id, restaurantId },
-        data: { status: OrderStatus.PAID },
-      });
-      if (update.count !== 1) throw new Error('Order not found or unauthorized');
       triggerDeduction = true;
 
       // 4. Earn loyalty points

@@ -597,7 +597,7 @@ export class AnalyticsController {
       const start = range.gte;
       const end = new Date(+range.lt - 1);
 
-      const [completedOrders, statusGroups, qrViews, cartSessions] = await Promise.all([
+      const [completedOrders, statusGroups, qrViews, cartSessions, abandonedCarts] = await Promise.all([
         prisma.order.findMany({
           where: {
             restaurantId,
@@ -621,6 +621,9 @@ export class AnalyticsController {
         }),
         prisma.cartSession.count({
           where: { restaurantId, createdAt: { gte: start, lte: end } }
+        }),
+        prisma.cartSession.count({
+          where: { restaurantId, isAbandoned: true, createdAt: { gte: start, lte: end } }
         })
       ]);
 
@@ -629,8 +632,6 @@ export class AnalyticsController {
       let prepCount = 0;
       let totalServiceTime = 0;
       let serviceCount = 0;
-      let totalTurnaround = 0;
-      let turnaroundCount = 0;
 
       completedOrders.forEach(o => {
         if (o.prepStartedAt && o.servedAt) {
@@ -647,16 +648,12 @@ export class AnalyticsController {
             serviceCount++;
           }
         }
-        const turnaroundDiff = (o.updatedAt.getTime() - o.createdAt.getTime()) / (1000 * 60);
-        if (turnaroundDiff > 0 && turnaroundDiff < 300) {
-          totalTurnaround += turnaroundDiff;
-          turnaroundCount++;
-        }
+
       });
 
-      const avgPrepTime = prepCount > 0 ? parseFloat((totalPrepTime / prepCount).toFixed(1)) : 14.5;
-      const avgDeliveryTime = serviceCount > 0 ? parseFloat((totalServiceTime / serviceCount).toFixed(1)) : 18.2;
-      const avgTableTurnaround = turnaroundCount > 0 ? parseFloat((totalTurnaround / turnaroundCount).toFixed(1)) : 45.0;
+      const avgPrepTime = prepCount > 0 ? parseFloat((totalPrepTime / prepCount).toFixed(1)) : null;
+      const avgDeliveryTime = serviceCount > 0 ? parseFloat((totalServiceTime / serviceCount).toFixed(1)) : null;
+      const avgTableTurnaround = null; // No table-cleared timestamp is recorded.
 
       // Estimate delays
       // Kitchen delay: % of orders where prep time > 20 mins
@@ -664,10 +661,10 @@ export class AnalyticsController {
       completedOrders.forEach(o => {
         if (o.prepStartedAt && o.servedAt) {
           const prepDiff = (o.servedAt.getTime() - o.prepStartedAt.getTime()) / (1000 * 60);
-          if (prepDiff > 20) kitchenDelays++;
+          if (prepDiff > 20 && prepDiff < 180) kitchenDelays++;
         }
       });
-      const kitchenDelayPct = prepCount > 0 ? parseFloat(((kitchenDelays / prepCount) * 100).toFixed(1)) : 5.2;
+      const kitchenDelayPct = prepCount > 0 ? parseFloat(((kitchenDelays / prepCount) * 100).toFixed(1)) : null;
 
       const countStatus = (...values: string[]) => statusGroups
         .filter(group => values.includes(group.status))
@@ -682,11 +679,8 @@ export class AnalyticsController {
 
       // Conversion funnel
 
-      // Adjust counts to make logical sense (funnel flow)
-      const adjustedViews = Math.max(qrViews, cartSessions * 1.5, ordersPlaced * 2, 10);
-      const adjustedCarts = Math.max(cartSessions, ordersPlaced * 1.2, 5);
-
-      const cartAbandonmentRate = parseFloat(((1 - (ordersPlaced / adjustedCarts)) * 100).toFixed(1));
+      const cartAbandonmentRate = cartSessions > 0
+        ? parseFloat(((abandonedCarts / cartSessions) * 100).toFixed(1)) : null;
 
       res.status(200).json({
         timing: {
@@ -695,15 +689,15 @@ export class AnalyticsController {
           avgTableTurnaround,
           delayPercentage: {
             kitchen: kitchenDelayPct,
-            waiter: 3.1
+            waiter: null
           }
         },
         statuses,
         conversion: {
-          qrViews: adjustedViews,
-          cartSessions: adjustedCarts,
+          qrViews,
+          cartSessions,
           ordersPlaced,
-          cartAbandonmentRate: cartAbandonmentRate > 0 ? cartAbandonmentRate : 0
+          cartAbandonmentRate
         }
       });
     } catch (err: any) {
@@ -729,7 +723,7 @@ export class AnalyticsController {
       const start = range.gte;
       const end = new Date(+range.lt - 1);
 
-      const [itemSales, menuItems, recipes, ordersWithItems] = await Promise.all([
+      const [itemSales, recipes, ordersWithItems] = await Promise.all([
         prisma.orderItem.groupBy({
           by: ['menuItemId', 'itemName'],
           where: {
@@ -740,10 +734,6 @@ export class AnalyticsController {
             }
           },
           _sum: { quantity: true, totalPrice: true }
-        }),
-        prisma.menuItem.findMany({
-          where: { restaurantId },
-          select: { id: true, name: true, price: true }
         }),
         prisma.recipe.findMany({
           where: { menuItem: { restaurantId } },
@@ -772,8 +762,6 @@ export class AnalyticsController {
       ]);
 
       const menuPerformance = itemSales.map(sale => {
-        const dbItem = menuItems.find(m => m.id === sale.menuItemId);
-        const itemPrice = dbItem?.price || 0;
         const totalRevenue = sale._sum.totalPrice || 0;
         const quantity = sale._sum.quantity || 0;
 
@@ -784,16 +772,14 @@ export class AnalyticsController {
           recipe.ingredients.forEach(ing => {
             unitCost = moneyNumber(decimal(unitCost).plus(decimal(ing.quantity).times(ing.rawMaterial.averageCost ?? ing.rawMaterial.purchasePrice ?? 0)));
           });
-        } else {
-          unitCost = moneyNumber(decimal(itemPrice).times('0.35')); // existing estimated COGS policy
         }
 
-        const totalCost = Number(decimal(unitCost).times(quantity).toFixed(2));
-        const profit = Number(decimal(totalRevenue).minus(totalCost).toFixed(2));
+        const totalCost = recipe && recipe.ingredients.length > 0 ? Number(decimal(unitCost).times(quantity).toFixed(2)) : null;
+        const profit = totalCost === null ? null : Number(decimal(totalRevenue).minus(totalCost).toFixed(2));
 
-        // Mock views for conversion rate
-        const views = quantity * 4 + Math.floor(Math.random() * 20);
-        const conversion = parseFloat(((quantity / (views || 1)) * 100).toFixed(1));
+        // Item-level view tracking is not available.
+        const views = null;
+        const conversion = null;
 
         return {
           id: sale.menuItemId || '',
@@ -858,6 +844,8 @@ export class AnalyticsController {
       const profiles = await prisma.customerRestaurantProfile.findMany({
         where: { restaurantId },
         select: {
+          customerId: true,
+          firstVisit: true,
           totalSpend: true,
           ltv: true,
           visitFrequency: true,
@@ -901,7 +889,7 @@ export class AnalyticsController {
 
       const avgSpend = total > 0 ? parseFloat((totalSpendSum / total).toFixed(2)) : 0;
       const clv = total > 0 ? parseFloat((totalLtvSum / total).toFixed(2)) : 0;
-      const frequencyDays = total > 0 ? parseFloat((totalFreqSum / total).toFixed(1)) : 12.5;
+      const frequencyDays = total > 0 ? parseFloat((totalFreqSum / total).toFixed(1)) : null;
 
       // Count upcoming events in next 7 days (ignoring year)
       let upcomingBirthdays = 0;
@@ -929,19 +917,44 @@ export class AnalyticsController {
         }
       });
 
-      // Cohort retention split: mock or fetch from actual monthly visits
-      const retentionMatrix = [
-        { cohort: 'Jan 2026', size: 120, m1: 85, m2: 70, m3: 65 },
-        { cohort: 'Feb 2026', size: 150, m1: 95, m2: 80, m3: 72 },
-        { cohort: 'Mar 2026', size: 180, m1: 110, m2: 95, m3: 0 },
-        { cohort: 'Apr 2026', size: 210, m1: 130, m2: 0, m3: 0 },
-      ];
+      const visits = await prisma.order.findMany({
+        where: { restaurantId, status: { in: ['SERVED', 'PAID'] }, customerId: { not: null }, createdAt: { gte: start, lte: end } },
+        select: { customerId: true, createdAt: true },
+      });
+      const visitors = new Set(visits.map(v => v.customerId));
+      const newCount = profiles.filter(p => p.firstVisit >= start && p.firstVisit <= end).length;
+      const returningCount = profiles.filter(p => p.firstVisit < start && visitors.has(p.customerId)).length;
+      const cohorts = new Map<string, Set<string>>();
+      for (const profile of profiles) {
+        if (profile.firstVisit < start || profile.firstVisit > end) continue;
+        const month = localDate(profile.firstVisit, zone).slice(0, 7);
+        if (!cohorts.has(month)) cohorts.set(month, new Set());
+        cohorts.get(month)!.add(profile.customerId);
+      }
+      const visitsByMonth = new Map<string, Set<string>>();
+      for (const visit of visits) {
+        if (!visit.customerId) continue;
+        const month = localDate(visit.createdAt, zone).slice(0, 7);
+        if (!visitsByMonth.has(month)) visitsByMonth.set(month, new Set());
+        visitsByMonth.get(month)!.add(visit.customerId);
+      }
+      const observedThrough = localDate(range.lt, zone).slice(0, 7);
+      const retentionMatrix = [...cohorts.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([month, customers]) => {
+        const retained = (offset: number): number | null => {
+          const date = new Date(month + '-01T00:00:00Z');
+          date.setUTCMonth(date.getUTCMonth() + offset);
+          const target = date.toISOString().slice(0, 7);
+          if (target >= observedThrough) return null;
+          return [...customers].filter(id => visitsByMonth.get(target)?.has(id)).length;
+        };
+        return { cohort: new Date(month + '-01T00:00:00Z').toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', year: 'numeric' }), size: customers.size, m1: retained(1), m2: retained(2), m3: retained(3) };
+      });
 
       res.status(200).json({
         summary: {
           total,
-          new: Math.max(1, Math.floor(total * 0.15)),
-          returning: Math.max(0, total - Math.floor(total * 0.15))
+          new: newCount,
+          returning: returningCount
         },
         segmentation: {
           vip,
@@ -987,11 +1000,8 @@ export class AnalyticsController {
         prisma.loyaltyLedger.groupBy({
           by: ['transactionType'],
           where: {
-            loyaltyAccount: {
-              customer: {
-                profiles: { some: { restaurantId } }
-              }
-            },
+            // Account membership does not attribute another restaurant's points here.
+            order: { restaurantId },
             createdAt: { gte: start, lte: end }
           },
           _sum: { points: true }
@@ -1032,7 +1042,7 @@ export class AnalyticsController {
 
       const redemptionRate = issued > 0 ? parseFloat(((redeemed / issued) * 100).toFixed(1)) : 0;
 
-      // Coupon ROI calculations
+      // Redeemed-order revenue, not causal revenue lift; retain legacy API field names.
       const couponStats: Record<string, { code: string; redemptions: number; revenueLift: number }> = {};
       redemptions.forEach(r => {
         const code = r.coupon.code;
@@ -1046,23 +1056,16 @@ export class AnalyticsController {
 
       const couponRoi = Object.values(couponStats).sort((a, b) => b.revenueLift - a.revenueLift);
 
-      if (couponRoi.length === 0) {
-        couponRoi.push(
-          { code: 'ORDIO50', redemptions: 18, revenueLift: 9500 },
-          { code: 'WELCOME100', redemptions: 12, revenueLift: 6200 },
-          { code: 'WEEKEND20', redemptions: 5, revenueLift: 3800 }
-        );
-      }
 
       res.status(200).json({
         members: {
-          joined: joinedCount || 5,
-          active: activeCount || 12
+          joined: joinedCount,
+          active: activeCount
         },
         points: {
-          issued: issued || 4200,
-          redeemed: redeemed || 1950,
-          redemptionRate: redemptionRate || 46.4
+          issued: issued,
+          redeemed: redeemed,
+          redemptionRate: redemptionRate
         },
         couponRoi
       });

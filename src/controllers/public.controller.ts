@@ -170,7 +170,7 @@ export class PublicController {
           res.status(404).json({ error: 'Active order not found' });
           return;
         }
-        if (existingOrder.status === 'CANCELLED') {
+        if (existingOrder.status === 'CANCELLED' || existingOrder.status === 'PAID') {
           res.status(400).json({ error: 'Cannot add items to a cancelled order' });
           return;
         }
@@ -179,7 +179,7 @@ export class PublicController {
           where: {
             orderId: existingOrderId,
             restaurantId: restaurant.id,
-            status: 'SUCCESS',
+            status: { in: ['SUCCESS', 'REFUNDED'] },
           },
         });
         if (successfulPayment) {
@@ -270,7 +270,7 @@ export class PublicController {
           const updatedTotalAmount = moneyNumber(money(decimal(existingOrder.totalAmount).plus(newTotalAmount)));
 
           const updatedOrder = await tx.order.update({
-            where: { id: existingOrder.id },
+            where: { id: existingOrder.id, restaurantId: restaurant.id, status: existingOrder.status, totalAmount: existingOrder.totalAmount },
             data: {
               subtotal: updatedSubtotal,
               taxAmount: updatedTaxAmount,
@@ -458,8 +458,8 @@ export class PublicController {
           orderItems: true,
           table: true,
           payments: {
+            where: { restaurantId: restaurant.id, status: { in: ['SUCCESS', 'REFUNDED'] } },
             orderBy: { createdAt: 'desc' },
-            take: 1,
           },
         },
       })) as any;
@@ -489,7 +489,10 @@ export class PublicController {
             unitPrice: item.unitPrice,
             totalPrice: item.totalPrice,
           })),
-          paymentStatus: order.payments[0]?.status ?? 'PENDING',
+          paymentStatus: order.payments.some((p: any) => p.status === 'REFUNDED' || decimal(p.refundedAmount ?? 0).gt(0))
+            ? 'REFUNDED'
+            : order.payments.length > 0 && order.payments.reduce((sum: ReturnType<typeof decimal>, p: any) => sum.plus(p.amount), decimal(0)).gte(order.totalAmount)
+              ? 'SUCCESS' : 'PENDING',
           paymentMethod: order.payments[0]?.paymentMethod ?? null,
         },
       });
@@ -499,94 +502,9 @@ export class PublicController {
   }
 
   // ─── POST /api/public/:slug/orders/:orderId/pay-mock ────────────────────────
-  async markOrderPaidMock(req: Request, res: Response): Promise<void> {
-    try {
-      const slug = req.params['slug'] as string;
-      const orderId = req.params['orderId'] as string;
-      const { paymentMethod } = req.body; // e.g., 'UPI', 'CARD'
-
-      if (!slug || !orderId) {
-        res.status(400).json({ error: 'Restaurant slug and order ID are required' });
-        return;
-      }
-
-      // Fetch restaurant
-      const restaurant = await prisma.restaurant.findUnique({
-        where: { slug },
-      });
-      if (!restaurant) {
-        res.status(404).json({ error: 'Restaurant not found' });
-        return;
-      }
-
-      // Fetch order
-      const order = await prisma.order.findFirst({
-        where: {
-          id: orderId,
-          restaurantId: restaurant.id,
-        },
-      });
-
-      if (!order) {
-        res.status(404).json({ error: 'Order not found' });
-        return;
-      }
-
-      // Create Payment and Transaction inside a database transaction
-      const payment = await prisma.$transaction(async (tx) => {
-        // Create Payment record
-        const newPayment = await tx.payment.create({
-          data: {
-            restaurantId: restaurant.id,
-            orderId: order.id,
-            amount: order.totalAmount,
-            status: 'SUCCESS',
-            paymentMethod: paymentMethod || 'ONLINE_DEMO',
-            razorpayOrderId: `order_mock_${Math.random().toString(36).substring(2, 11)}`,
-            razorpayPaymentId: `pay_mock_${Math.random().toString(36).substring(2, 11)}`,
-            paidAt: new Date(),
-          },
-        });
-
-        // Create Transaction record
-        await tx.transaction.create({
-          data: {
-            restaurantId: restaurant.id,
-            paymentId: newPayment.id,
-            amount: order.totalAmount,
-            transactionType: 'INCOME',
-            reference: `Razorpay Demo Ref: ${newPayment.razorpayPaymentId}`,
-          },
-        });
-
-        // Update Order status to PAID
-        await tx.order.update({
-          where: { id: order.id },
-          data: { status: 'PAID' },
-        });
-
-        // Earn loyalty points
-        if (order.customerId && restaurant.brandId) {
-          const loyaltyService = new LoyaltyService();
-          await loyaltyService.earnPoints(order.customerId, restaurant.brandId, order.totalAmount, order.id, tx);
-        }
-
-        return newPayment;
-      });
-
-      res.status(200).json({
-        message: 'Payment mock successful!',
-        payment: {
-          id: payment.id,
-          amount: payment.amount,
-          status: payment.status,
-          paymentMethod: payment.paymentMethod,
-          paidAt: payment.paidAt,
-        },
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
+  async markOrderPaidMock(_req: Request, res: Response): Promise<void> {
+    // No provider integration exists. This legacy route must never create money records.
+    res.status(410).json({ error: 'Online payments are unavailable. Please pay at the restaurant counter.' });
   }
 
   async requestAssistance(req: Request, res: Response): Promise<void> {
@@ -786,4 +704,3 @@ export class PublicController {
     }
   }
 }
-

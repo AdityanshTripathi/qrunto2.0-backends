@@ -44,13 +44,11 @@ dependency executes the real queue/CRM Lua scripts against in-memory commands.
 | Redis | Real shared manager and Socket.IO Redis adapter with mocked connections, two-client bound, concurrent reuse, bounded reconnect, cleanup, warm/module reuse |
 | Monitoring | Liveness/readiness, dependency timeout and structured secret redaction |
 
-**Payments: PARTIAL / DEFERRED.** Tests characterize current authenticated cash
-settlement and sequential replay behavior. They also explicitly demonstrate that
-the public `pay-mock` route accepts requests without provider proof and creates
-duplicate payment records on replay. Passing these characterization tests is not
-a payment security approval. Provider signature/amount verification, fake-payment
-protection, concurrent idempotency, and atomic payment-to-queue delivery remain
-named TODO tests. No deferred business logic is implemented.
+**Payments: FAIL CLOSED.** Legacy public and subscription simulators are blocked.
+Only authenticated cash settlement is available, with a transactional order claim
+and replay/rollback tests. No real provider integration or payment webhook exists.
+Provider verification and a crash-atomic database-to-queue handoff remain deferred.
+Concurrency tests use boundary doubles; real PostgreSQL isolation is unverified.
 
 **Database/Redis infrastructure: UNVERIFIED.** Doubles cannot establish PostgreSQL
 RLS, foreign keys, rollback/isolation under concurrency, or real Redis/network/

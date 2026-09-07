@@ -108,21 +108,8 @@ export class CampaignService {
 
       for (const customer of targetCustomers) {
         try {
-          // Token substitution
-          const interpolatedBody = campaign.templateBody
-            .replace(/\{\{name\}\}/gi, customer.name || 'Valued Guest')
-            .replace(/\{\{phone\}\}/gi, customer.phone || '')
-            .replace(/\{\{email\}\}/gi, customer.email || '');
-
-          // Simulate dispatch based on channel type
-          if (campaign.channel === CampaignChannel.EMAIL) {
-            if (!customer.email) {
-              throw new Error('Customer does not have a linked email address');
-            }
-            console.log(`[SMTP Mailer Simulator] To: ${customer.email} | Sub: ${campaign.templateSubject} | Msg: ${interpolatedBody}`);
-          } else if (campaign.channel === CampaignChannel.SMS) {
-            console.log(`[SMS Gateway Simulator] To: ${customer.phone} | Msg: ${interpolatedBody}`);
-          }
+          // No delivery provider is connected. Never record simulated delivery as SENT.
+          await Promise.reject(new Error('Campaign delivery provider is not configured'));
 
           // Mark log as SENT
           await prisma.campaignLog.updateMany({
@@ -154,7 +141,7 @@ export class CampaignService {
       // 5. Complete campaign
       await prisma.campaign.update({
         where: { id: campaignId },
-        data: { status: CampaignStatus.COMPLETED },
+        data: { status: failedCount > 0 && sentCount === 0 ? CampaignStatus.FAILED : CampaignStatus.COMPLETED },
       });
 
       console.log(`[Campaign Dispatcher] Campaign "${campaign.name}" completed. Sent: ${sentCount}, Failed: ${failedCount}`);

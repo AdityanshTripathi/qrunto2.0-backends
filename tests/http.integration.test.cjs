@@ -195,13 +195,13 @@ test('Inventory/payments: HTTP settlement enqueues correct IDs once; replay crea
   assert.equal((await request(`/api/orders/${id}/pay`, { method: 'POST', body: {} })).status, 401);
 });
 
-test('Payments CURRENT behavior: public mock payment accepts no proof and duplicates records on replay', async () => {
+test('Payments: legacy public simulator is blocked without writes', async () => {
   const id = (await order()).body.order.id;
-  const route = `/api/public/${a.restaurant.slug}/orders/${id}/pay-mock`;
-  assert.equal((await request(route, { method: 'POST', body: {} })).status, 200);
-  assert.equal((await request(route, { method: 'POST', body: {} })).status, 200);
-  assert.equal(db.data.payments.length, 2);
-  assert.equal((await request(`/api/public/${b.restaurant.slug}/orders/${id}/pay-mock`, { method: 'POST', body: {} })).status, 404);
+  for (const slug of [a.restaurant.slug, b.restaurant.slug]) {
+    assert.equal((await request(`/api/public/${slug}/orders/${id}/pay-mock`, { method: 'POST', body: {} })).status, 410);
+  }
+  assert.equal(db.data.payments.length, 0);
+  assert.equal(db.data.transactions.length, 0);
 });
 test('Tracing: health/readiness and protected CRM cron retain the HTTP ID in logs', async t => {
   const logs = []; t.mock.method(console, 'info', row => logs.push(row));
@@ -228,6 +228,6 @@ test('Tracing: health/readiness and protected CRM cron retain the HTTP ID in log
   assert.ok(logs.some(row => row.stage === 'test.cron' && row.requestId === res.requestId));
 });
 
-test.todo('DEFERRED Payments: provider signature/amount verification and fake-payment protection');
-test.todo('DEFERRED Payments: concurrent idempotency and atomic payment-to-queue handoff');
+test.todo('UNAVAILABLE Payments: real provider verification and signed webhooks require an integration');
+test.todo('DEFERRED Payments: atomic payment-to-queue handoff across process crashes');
 test.todo('UNVERIFIED Database: real PostgreSQL constraints, RLS and transaction isolation');
