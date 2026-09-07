@@ -1,14 +1,14 @@
+import { restaurantTimezone, dateRange, localDate } from '../../lib/timezone';
 import { prisma } from '../../lib/prisma';
 import { decimal, moneyNumber } from '../../lib/money';
 import { LedgerActionType, RawMaterialStatus } from '@prisma/client';
 
 export class ReportService {
   async getDashboardMetrics(restaurantId: string): Promise<any> {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
+    const zone = await restaurantTimezone(restaurantId);
+    const range = dateRange(undefined, undefined, zone, new Date(), 0);
+    const todayStart = range.gte;
+    const todayEnd = new Date(+range.lt - 1);
 
     const [rawMaterials, ledgersToday, receivedPOsToday, wastageToday] = await Promise.all([
       prisma.rawMaterial.findMany({
@@ -103,6 +103,7 @@ export class ReportService {
     startDate: Date,
     endDate: Date
   ): Promise<any> {
+    const zone = await restaurantTimezone(restaurantId);
     // Get all SALE_DEDUCTION ledger lines in date range
     const ledgers = await prisma.stockLedger.findMany({
       where: {
@@ -129,7 +130,7 @@ export class ReportService {
     const itemData: Record<string, number> = {};
 
     for (const entry of ledgers) {
-      const dateStr = entry.createdAt.toISOString().slice(0, 10);
+      const dateStr = localDate(entry.createdAt, zone);
       const avgCost = entry.rawMaterial?.averageCost || 0;
       const cost = moneyNumber(decimal(Math.abs(entry.quantity)).times(avgCost));
 

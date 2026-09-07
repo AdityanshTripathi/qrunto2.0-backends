@@ -1,3 +1,4 @@
+import { restaurantTimezone, dateInput } from '../../lib/timezone';
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { PurchaseService } from '../../services/inventory/purchase.service';
@@ -11,15 +12,15 @@ const CreatePurchaseOrderItemSchema = z.object({
   unitPrice: z.number().nonnegative('Unit price cannot be negative'),
   gstPercentage: z.number().nonnegative().optional(),
   totalCost: z.number().nonnegative(),
-  expiryDate: z.string().datetime().optional().nullable(),
+  expiryDate: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).optional().nullable(),
 });
 
 const CreatePurchaseOrderSchema = z.object({
   supplierId: z.string().uuid('Invalid supplier ID'),
   poNumber: z.string().min(1, 'PO number is required'),
   status: z.nativeEnum(PurchaseOrderStatus).optional(),
-  orderDate: z.string().datetime().optional(),
-  expectedDate: z.string().datetime().optional().nullable(),
+  orderDate: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).optional(),
+  expectedDate: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).optional().nullable(),
   subtotal: z.number().nonnegative(),
   gstAmount: z.number().nonnegative(),
   grandTotal: z.number().nonnegative(),
@@ -30,7 +31,7 @@ const CreatePurchaseOrderSchema = z.object({
 const UpdatePurchaseOrderSchema = CreatePurchaseOrderSchema.partial();
 
 const ReceivePurchaseOrderSchema = z.object({
-  receivedDate: z.string().datetime().optional(),
+  receivedDate: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).optional(),
   invoiceNumber: z.string().max(100).optional().nullable(),
   invoiceAttachmentUrl: z.string().url().or(z.literal('')).optional().nullable(),
   notes: z.string().max(1000).optional().nullable(),
@@ -103,6 +104,7 @@ export class PurchaseController {
       }
 
       const data = validationResult.data;
+      const zone = await restaurantTimezone(restaurantId);
       const payload: any = {
         supplierId: data.supplierId,
         poNumber: data.poNumber,
@@ -117,13 +119,13 @@ export class PurchaseController {
             totalCost: item.totalCost,
           };
           if (item.gstPercentage !== undefined) itemPayload.gstPercentage = item.gstPercentage;
-          if (item.expiryDate !== undefined && item.expiryDate !== null) itemPayload.expiryDate = new Date(item.expiryDate);
+          if (item.expiryDate !== undefined && item.expiryDate !== null) itemPayload.expiryDate = dateInput(item.expiryDate, zone, true);
           return itemPayload;
         }),
       };
       if (data.status !== undefined) payload.status = data.status;
-      if (data.orderDate !== undefined) payload.orderDate = new Date(data.orderDate);
-      if (data.expectedDate !== undefined && data.expectedDate !== null) payload.expectedDate = new Date(data.expectedDate);
+      if (data.orderDate !== undefined) payload.orderDate = dateInput(data.orderDate, zone);
+      if (data.expectedDate !== undefined && data.expectedDate !== null) payload.expectedDate = dateInput(data.expectedDate, zone);
       if (data.notes !== undefined && data.notes !== null) payload.notes = data.notes;
 
       const purchaseOrder = await purchaseService.createPurchaseOrder(restaurantId, payload);
@@ -154,6 +156,7 @@ export class PurchaseController {
       }
 
       const data = validationResult.data;
+      const zone = await restaurantTimezone(restaurantId);
       const payload: any = {};
       if (data.supplierId !== undefined) payload.supplierId = data.supplierId;
       if (data.poNumber !== undefined) payload.poNumber = data.poNumber;
@@ -161,8 +164,8 @@ export class PurchaseController {
       if (data.subtotal !== undefined) payload.subtotal = data.subtotal;
       if (data.gstAmount !== undefined) payload.gstAmount = data.gstAmount;
       if (data.grandTotal !== undefined) payload.grandTotal = data.grandTotal;
-      if (data.orderDate !== undefined) payload.orderDate = data.orderDate ? new Date(data.orderDate) : undefined;
-      if (data.expectedDate !== undefined) payload.expectedDate = data.expectedDate ? new Date(data.expectedDate) : null;
+      if (data.orderDate !== undefined) payload.orderDate = data.orderDate ? dateInput(data.orderDate, zone) : undefined;
+      if (data.expectedDate !== undefined) payload.expectedDate = data.expectedDate ? dateInput(data.expectedDate, zone) : null;
       if (data.notes !== undefined) payload.notes = data.notes || null;
       if (data.items !== undefined) {
         payload.items = data.items.map(item => {
@@ -173,7 +176,7 @@ export class PurchaseController {
             totalCost: item.totalCost,
           };
           if (item.gstPercentage !== undefined) itemPayload.gstPercentage = item.gstPercentage;
-          if (item.expiryDate !== undefined) itemPayload.expiryDate = item.expiryDate ? new Date(item.expiryDate) : null;
+          if (item.expiryDate !== undefined) itemPayload.expiryDate = item.expiryDate ? dateInput(item.expiryDate, zone, true) : null;
           return itemPayload;
         });
       }
@@ -206,8 +209,9 @@ export class PurchaseController {
       }
 
       const data = validationResult.data;
+      const zone = await restaurantTimezone(restaurantId);
       const payload: any = {
-        receivedDate: data.receivedDate ? new Date(data.receivedDate) : new Date(),
+        receivedDate: data.receivedDate ? dateInput(data.receivedDate, zone) : new Date(),
       };
       if (data.invoiceNumber !== undefined && data.invoiceNumber !== null) payload.invoiceNumber = data.invoiceNumber;
       if (data.invoiceAttachmentUrl !== undefined && data.invoiceAttachmentUrl !== null) payload.invoiceAttachmentUrl = data.invoiceAttachmentUrl;

@@ -1,3 +1,4 @@
+import { daysAgo, timezone } from '../../lib/timezone';
 import { prisma } from '../../lib/prisma';
 import { logSafeError } from '../../lib/safe-error';
 
@@ -91,21 +92,19 @@ export class SegmentService {
     if (criteria.minOrders !== undefined && criteria.minOrders > 0) {
       profileFilters.totalOrders = { gte: criteria.minOrders };
     }
-    if (criteria.lastVisitDaysAgo !== undefined && criteria.lastVisitDaysAgo > 0) {
-      const dateLimit = new Date();
-      dateLimit.setDate(now.getDate() - criteria.lastVisitDaysAgo);
-      profileFilters.lastVisit = { lte: dateLimit };
-    }
-    if (criteria.visitedWithinDays !== undefined && criteria.visitedWithinDays > 0) {
-      const dateLimit = new Date();
-      dateLimit.setDate(now.getDate() - criteria.visitedWithinDays);
-      profileFilters.lastVisit = { ...profileFilters.lastVisit, gte: dateLimit };
-    }
-
-    if (Object.keys(profileFilters).length > 0) {
-      where.profiles = {
-        some: profileFilters,
-      };
+    const hasRecency = (criteria.lastVisitDaysAgo ?? 0) > 0 || (criteria.visitedWithinDays ?? 0) > 0;
+    if (hasRecency) {
+      // Brand segments evaluate each restaurant profile in that restaurant's timezone.
+      const restaurants = await prisma.restaurant.findMany({ where: { brandId }, select: { id: true, timezone: true } });
+      where.profiles = { some: { OR: restaurants.map(restaurant => {
+        const zone = timezone(restaurant.timezone);
+        return { ...profileFilters, restaurantId: restaurant.id, lastVisit: {
+          ...((criteria.lastVisitDaysAgo ?? 0) > 0 ? { lt: daysAgo(criteria.lastVisitDaysAgo! - 1, zone, now) } : {}),
+          ...((criteria.visitedWithinDays ?? 0) > 0 ? { gte: daysAgo(criteria.visitedWithinDays!, zone, now) } : {}),
+        } };
+      }) } };
+    } else if (Object.keys(profileFilters).length > 0) {
+      where.profiles = { some: profileFilters };
     }
 
     // JSON metadata tags checks

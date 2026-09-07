@@ -1,3 +1,4 @@
+import { restaurantTimezone, dateInput } from '../../lib/timezone';
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { WastageService } from '../../services/inventory/wastage.service';
@@ -10,7 +11,7 @@ const CreateWastageRecordSchema = z.object({
   quantity: z.number().positive('Quantity must be greater than 0'),
   reason: z.nativeEnum(WastageReason),
   notes: z.string().max(1000).optional().nullable(),
-  wasteDate: z.string().datetime().optional().nullable(),
+  wasteDate: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).optional().nullable(),
 });
 
 export class WastageController {
@@ -55,6 +56,7 @@ export class WastageController {
       }
 
       const data = validationResult.data;
+      const zone = await restaurantTimezone(restaurantId);
       const payload: any = {
         rawMaterialId: data.rawMaterialId,
         quantity: data.quantity,
@@ -64,7 +66,7 @@ export class WastageController {
         payload.notes = data.notes;
       }
       if (data.wasteDate !== undefined && data.wasteDate !== null) {
-        payload.wasteDate = new Date(data.wasteDate);
+        payload.wasteDate = dateInput(data.wasteDate, zone);
       }
 
       const record = await wastageService.createWastageRecord(restaurantId, userId, payload);

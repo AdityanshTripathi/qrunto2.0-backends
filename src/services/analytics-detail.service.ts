@@ -2,20 +2,10 @@ import { prisma } from '../lib/prisma';
 import type { Prisma } from '@prisma/client';
 import { decimal, money as roundMoney, moneyNumber, type MoneyInput } from '../lib/money';
 
-const DAY = 86_400_000;
-export class AnalyticsDateError extends Error {}
-export function analyticsDates(startDate: unknown, endDate: unknown, now = new Date()) {
-  const day = (value: unknown, fallback: Date): Date => {
-    if (value === undefined) return new Date(fallback.toISOString().slice(0, 10) + 'T00:00:00Z');
-    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new AnalyticsDateError('Use YYYY-MM-DD dates');
-    const parsed = new Date(value + 'T00:00:00Z');
-    if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) throw new AnalyticsDateError('Invalid date');
-    return parsed;
-  };
-  const start = day(startDate, new Date(now.getTime() - 30 * DAY));
-  const end = day(endDate, now);
-  if (start > end) throw new AnalyticsDateError('startDate must not exceed endDate');
-  return { gte: start, lt: new Date(end.getTime() + DAY) };
+export { BusinessDateError as AnalyticsDateError } from '../lib/timezone';
+import { dateRange } from '../lib/timezone';
+export function analyticsDates(startDate: unknown, endDate: unknown, now = new Date(), zone = 'UTC') {
+  return dateRange(startDate, endDate, zone, now);
 }
 type Range = ReturnType<typeof analyticsDates>;
 const money = (value: MoneyInput) => moneyNumber(roundMoney(value));

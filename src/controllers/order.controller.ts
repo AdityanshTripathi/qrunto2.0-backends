@@ -1,3 +1,4 @@
+import { restaurantTimezone, dateInput, validDate, localDate, BusinessDateError } from '../lib/timezone';
 import { Request, Response } from 'express';
 import { moneyNumber } from '../lib/money';
 import { z } from 'zod';
@@ -34,9 +35,12 @@ export class OrderController {
         filters.status = statusParam as OrderStatus;
       }
 
+      const zone = (dateParam || startDateParam || endDateParam) ? await restaurantTimezone(restaurantId) : 'UTC';
       const addValidDate = (value: string | undefined, key: 'date' | 'startDate' | 'endDate') => {
         if (!value) return;
-        const parsed = new Date(value);
+        const parsed = key === 'date'
+          ? new Date((/^\d{4}-\d{2}-\d{2}$/.test(value) ? validDate(value) : localDate(dateInput(value, zone), zone)) + 'T00:00:00Z')
+          : dateInput(value, zone, key === 'endDate');
         if (!isNaN(parsed.getTime())) filters[key] = parsed;
       };
       addValidDate(dateParam, 'date');
@@ -55,6 +59,7 @@ export class OrderController {
       );
       res.status(200).json(result);
     } catch (err: any) {
+      if (err instanceof BusinessDateError) { res.status(400).json({ error: err.message }); return; }
       res.status(500).json({ error: err.message });
     }
   }

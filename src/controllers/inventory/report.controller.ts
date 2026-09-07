@@ -1,3 +1,4 @@
+import { restaurantTimezone, dateInput, daysAgo, BusinessDateError } from '../../lib/timezone';
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { ReportService } from '../../services/inventory/report.service';
@@ -5,8 +6,8 @@ import { ReportService } from '../../services/inventory/report.service';
 const reportService = new ReportService();
 
 const ConsumptionAnalyticsSchema = z.object({
-  startDate: z.string().datetime().optional(),
-  endDate: z.string().datetime().optional(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
 });
 
 export class ReportController {
@@ -49,17 +50,19 @@ export class ReportController {
         return;
       }
 
+      const zone = await restaurantTimezone(restaurantId);
       const endDate = validationResult.data.endDate 
-        ? new Date(validationResult.data.endDate) 
+        ? dateInput(validationResult.data.endDate, zone, true)
         : new Date();
 
       const startDate = validationResult.data.startDate 
-        ? new Date(validationResult.data.startDate) 
-        : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000); // 7 days ago
+        ? dateInput(validationResult.data.startDate, zone)
+        : daysAgo(7, zone); // 7 days ago
 
       const analytics = await reportService.getConsumptionAnalytics(restaurantId, startDate, endDate);
       res.status(200).json({ analytics });
     } catch (err: any) {
+      if (err instanceof BusinessDateError) { res.status(400).json({ error: err.message }); return; }
       res.status(500).json({ error: err.message });
     }
   }

@@ -1,9 +1,11 @@
+import { isTimezone, timezone } from '../lib/timezone';
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 
 // ─── Zod Schema for Settings Update ──────────────────────────────────────────
 const UpdateSettingsSchema = z.object({
+  timezone: z.string().refine(isTimezone, 'Invalid IANA timezone').optional(),
   // Restaurant Profile Details
   name: z.string().min(2, 'Restaurant name must be at least 2 characters').optional(),
   phone: z.string().nullable().optional(),
@@ -62,6 +64,7 @@ export class SettingsController {
           id: restaurant.id,
           name: restaurant.name,
           slug: restaurant.slug,
+          timezone: timezone(restaurant.timezone),
           logoUrl: restaurant.logoUrl,
           phone: restaurant.phone,
           email: restaurant.email,
@@ -99,6 +102,7 @@ export class SettingsController {
 
       // Split restaurant fields and settings fields
       const restaurantFields: Record<string, any> = {};
+      if (data.timezone !== undefined) restaurantFields.timezone = data.timezone;
       if (data.name !== undefined) restaurantFields.name = data.name;
       if (data.phone !== undefined) restaurantFields.phone = data.phone;
       if (data.email !== undefined) restaurantFields.email = data.email;
@@ -143,6 +147,7 @@ export class SettingsController {
           id: updated.restaurant.id,
           name: updated.restaurant.name,
           slug: updated.restaurant.slug,
+          timezone: timezone(updated.restaurant.timezone),
           logoUrl: updated.restaurant.logoUrl,
           phone: updated.restaurant.phone,
           email: updated.restaurant.email,

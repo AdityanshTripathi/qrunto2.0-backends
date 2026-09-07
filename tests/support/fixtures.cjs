@@ -10,7 +10,7 @@ function fixtures() {
   const match = (row, where = {}) => Object.entries(where).every(([key, value]) => {
     if (value && typeof value === 'object' && !(value instanceof Date)) {
       if (value.in) return value.in.includes(row[key]);
-      return (!value.gte || row[key] >= value.gte) && (!value.lte || row[key] <= value.lte);
+      return (!value.lt || row[key] < value.lt) && (!value.gte || row[key] >= value.gte) && (!value.lte || row[key] <= value.lte);
     }
     return row[key] === value;
   });
@@ -67,7 +67,7 @@ function fixtures() {
     catch (error) { Object.assign(data, snapshot); throw error; }
   };
   function tenant(number) {
-    const restaurant = { id: id(number), name: `Tenant ${number}`, slug: `tenant-${number}`, ownerId: id(number + 10), isActive: true, settings: { taxPercentage: 10 } };
+    const restaurant = { id: id(number), timezone: 'UTC', name: `Tenant ${number}`, slug: `tenant-${number}`, ownerId: id(number + 10), isActive: true, settings: { taxPercentage: 10 } };
     const user = { id: restaurant.ownerId, email: `tenant${number}@example.test`, role: 'RESTAURANT_OWNER', restaurantId: restaurant.id, isActive: true };
     const table = { id: id(number + 20), restaurantId: restaurant.id, tableNumber: '1', isActive: true };
     const menu = { id: id(number + 30), restaurantId: restaurant.id, name: 'Test Dish', price: 100, isAvailable: true };

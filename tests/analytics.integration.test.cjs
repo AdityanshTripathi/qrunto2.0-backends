@@ -49,6 +49,17 @@ async function request(endpoint, query = 'startDate=2026-09-01&endDate=2026-09-0
   return { status: response.status, body: await response.json() };
 }
 
+test('Financial analytics: tenant-local midnight includes previous UTC day and excludes next local day', async () => {
+  a.restaurant.timezone = 'Asia/Kolkata';
+  const row = (id, createdAt, restaurantId = a.restaurant.id) => ({ id, restaurantId, status: 'PAID', createdAt: date(createdAt), subtotal: 10, taxAmount: 0, totalAmount: 10 });
+  rows.order.push(row('midnight', '2026-08-31T19:00:00Z'), row('before', '2026-08-31T18:29:59.999Z'), row('next', '2026-09-01T18:30:00Z'), row('foreign', '2026-08-31T19:00:00Z', b.restaurant.id));
+  const res = await request('financials');
+  assert.equal(res.status, 200); assert.equal(res.body.summary.orders, 1); assert.equal(res.body.summary.net, 10);
+  a.restaurant.timezone = 'UTC';
+  const utc = await request('financials'); assert.equal(utc.body.summary.orders, 1);
+  assert.ok(calls.every(call => (call.where.restaurantId ?? call.where.restaurant_id) === a.restaurant.id));
+});
+
 test('Analytics: registered routes require auth and return honest empty frontend contracts', async () => {
   for (const endpoint of ['inventory', 'financials']) assert.equal((await request(endpoint, '', null)).status, 401);
   assert.equal(calls.length, 0);

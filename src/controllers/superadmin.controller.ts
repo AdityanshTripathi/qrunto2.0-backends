@@ -12,9 +12,9 @@ export class SuperAdminController {
     try {
       const now = new Date();
       const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      thirtyDaysAgo.setUTCDate(thirtyDaysAgo.getUTCDate() - 30);
       const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
+      todayStart.setUTCHours(0, 0, 0, 0);
 
       // 1. Restaurants counts
       const totalRestaurants = await prisma.restaurant.count();

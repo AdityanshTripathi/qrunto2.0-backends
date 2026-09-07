@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { z } from 'zod';
 import { SubscriptionService } from '../services/subscription.service';
 import { prisma } from '../lib/prisma';
+import { restaurantTimezone } from '../lib/timezone';
 
 const subscriptionService = new SubscriptionService();
 
@@ -83,6 +84,7 @@ export class SubscriptionController {
       }
 
       const cleanCode = code.toUpperCase().trim();
+      const zone = await restaurantTimezone(restaurantId);
 
       // Find the code
       const promoCode = await prisma.promoCode.findUnique({
@@ -134,10 +136,10 @@ export class SubscriptionController {
         // Extend existing subscription
         startDate = new Date(activeSubscription.startDate);
         endDate = new Date(activeSubscription.endDate);
-        endDate.setDate(endDate.getDate() + promoCode.durationDays);
+        endDate.setUTCDate(endDate.getUTCDate() + promoCode.durationDays);
       } else {
         // Create new subscription
-        endDate.setDate(endDate.getDate() + promoCode.durationDays);
+        endDate.setUTCDate(endDate.getUTCDate() + promoCode.durationDays);
       }
 
       // Perform transaction
@@ -191,7 +193,7 @@ export class SubscriptionController {
           data: {
             restaurantId,
             title: 'Plan Activated Successfully',
-            message: `Your subscription to the ${planName} plan has been activated. Valid until ${endDate.toLocaleDateString('en-IN')}.`,
+            message: `Your subscription to the ${planName} plan has been activated. Valid until ${endDate.toLocaleDateString('en-IN', { timeZone: zone })}.`,
             type: 'BILLING'
           }
         });

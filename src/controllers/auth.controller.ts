@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { AuthService } from '../services/auth.service';
 import { UserRepository } from '../repositories/user.repository';
 import { prisma } from '../lib/prisma';
+import { restaurantTimezone, timezone } from '../lib/timezone';
 
 const authService = new AuthService();
 const userRepository = new UserRepository();
@@ -112,11 +113,13 @@ export class AuthController {
             name: waiter.name,
             email: waiter.email,
             role: 'WAITER',
+            restaurantTimezone: timezone(waiter.restaurant.timezone),
             restaurants: [
               {
                 id: waiter.restaurant.id,
                 name: waiter.restaurant.name,
                 slug: waiter.restaurant.slug,
+                timezone: waiter.restaurant.timezone,
                 logoUrl: waiter.restaurant.logoUrl,
               },
             ],
@@ -139,6 +142,7 @@ export class AuthController {
           email: user.email,
           role: user.role,
           restaurants: user.restaurants,
+          restaurantTimezone: req.user.restaurantId ? await restaurantTimezone(req.user.restaurantId) : null,
         },
       });
     } catch (err: any) {

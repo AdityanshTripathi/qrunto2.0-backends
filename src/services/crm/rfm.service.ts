@@ -1,3 +1,4 @@
+import { calendarDaysSince, timezone } from '../../lib/timezone';
 import { prisma } from '../../lib/prisma';
 import { moneyNumber } from '../../lib/money';
 
@@ -20,7 +21,7 @@ export class RFMService {
     const customers = await prisma.customer.findMany({
       where: { brandId },
       include: {
-        profiles: true,
+        profiles: { where: { restaurant: { brandId } }, include: { restaurant: { select: { timezone: true } } } },
       },
     });
 
@@ -32,7 +33,7 @@ export class RFMService {
     const rawData = customers.map((c) => {
       const profile = c.profiles?.[0];
       const lastVisit = profile?.lastVisit ? new Date(profile.lastVisit) : c.createdAt;
-      const recencyDays = Math.max(0, Math.floor((now.getTime() - lastVisit.getTime()) / (1000 * 60 * 60 * 24)));
+      const recencyDays = Math.max(0, calendarDaysSince(lastVisit, now, timezone(profile?.restaurant?.timezone)));
       const frequency = profile?.totalOrders ?? 0;
       const monetary = moneyNumber(profile?.totalSpend ?? 0);
 

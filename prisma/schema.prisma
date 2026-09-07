@@ -48,6 +48,7 @@ model Brand {
 }
 
 model Restaurant {
+  timezone              String                      @default("Asia/Kolkata")
   id                    String                      @id @default(uuid())
   ownerId               String                      @map("owner_id")
   name                  String

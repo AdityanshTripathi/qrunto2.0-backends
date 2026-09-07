@@ -1,3 +1,4 @@
+import { restaurantTimezone, timezone, dateInput, BusinessDateError } from '../../lib/timezone';
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../../middlewares/auth.middleware';
 import { prisma } from '../../lib/prisma';
@@ -29,7 +30,7 @@ export class CouponController {
 
       const ownerRecord = await prisma.user.findUnique({
         where: { id: user.id },
-        include: { restaurants: { select: { brandId: true } } }
+        include: { restaurants: { select: { brandId: true, timezone: true } } }
       });
 
       const brandId = ownerRecord?.restaurants?.[0]?.brandId;
@@ -62,7 +63,7 @@ export class CouponController {
 
       const ownerRecord = await prisma.user.findUnique({
         where: { id: user.id },
-        include: { restaurants: { select: { brandId: true } } }
+        include: { restaurants: { select: { brandId: true, timezone: true } } }
       });
 
       const brandId = ownerRecord?.restaurants?.[0]?.brandId;
@@ -71,18 +72,20 @@ export class CouponController {
         return;
       }
 
+      const zone = user.restaurantId ? await restaurantTimezone(user.restaurantId) : timezone(ownerRecord?.restaurants?.[0]?.timezone);
       const coupon = await couponService.createCoupon(brandId, {
         code: validation.data.code,
         discountType: validation.data.discountType as CouponDiscountType,
         discountValue: validation.data.discountValue,
         minOrderAmount: validation.data.minOrderAmount ?? 0,
         maxDiscountAmount: validation.data.maxDiscountAmount ?? null,
-        startDate: new Date(validation.data.startDate),
-        endDate: new Date(validation.data.endDate),
+        startDate: dateInput(validation.data.startDate, zone),
+        endDate: dateInput(validation.data.endDate, zone, true),
       });
 
       res.status(201).json({ message: 'Coupon created successfully', coupon });
     } catch (err: any) {
+      if (err instanceof BusinessDateError) { res.status(400).json({ error: err.message }); return; }
       res.status(500).json({ error: err.message });
     }
   }
@@ -100,7 +103,7 @@ export class CouponController {
 
       const ownerRecord = await prisma.user.findUnique({
         where: { id: user.id },
-        include: { restaurants: { select: { brandId: true } } }
+        include: { restaurants: { select: { brandId: true, timezone: true } } }
       });
 
       const brandId = ownerRecord?.restaurants?.[0]?.brandId;
@@ -147,7 +150,7 @@ export class CouponController {
 
       const ownerRecord = await prisma.user.findUnique({
         where: { id: user.id },
-        include: { restaurants: { select: { brandId: true } } }
+        include: { restaurants: { select: { brandId: true, timezone: true } } }
       });
 
       const brandId = ownerRecord?.restaurants?.[0]?.brandId;

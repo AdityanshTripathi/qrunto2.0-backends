@@ -1,3 +1,4 @@
+import { calendarDaysSince, restaurantTimezone, localDate, localParts, localHourKey, daysAgo, addDays, dayStart, dateRange, dateFilterRange, BusinessDateError } from '../lib/timezone';
 import type { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { decimal, moneyNumber } from '../lib/money';
@@ -17,9 +18,9 @@ export class AnalyticsController {
         return;
       }
 
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
-      sevenDaysAgo.setHours(0, 0, 0, 0);
+      const zone = await restaurantTimezone(restaurantId);
+      const sevenDaysAgo = daysAgo(6, zone);
+      const todayRange = dateRange(undefined, undefined, zone, new Date(), 0);
 
       const [
         servedOrderAggregate,
@@ -29,7 +30,7 @@ export class AnalyticsController {
         tableOrdersGrouped,
       ] = await Promise.all([
         prisma.order.aggregate({
-          where: { restaurantId, status: 'SERVED' },
+          where: { restaurantId, status: 'SERVED', createdAt: todayRange },
           _sum: { totalAmount: true },
           _count: { id: true },
           _avg: { totalAmount: true },
@@ -94,15 +95,13 @@ export class AnalyticsController {
 
       const dailyTrend: Record<string, { date: string; revenue: number; count: number }> = {};
       for (let i = 6; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        const dayStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        const key = d.toISOString().split('T')[0]!;
+        const key = addDays(localDate(new Date(), zone), -i);
+        const dayStr = new Date(key + 'T00:00:00Z').toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' });
         dailyTrend[key] = { date: dayStr, revenue: 0, count: 0 };
       }
 
       recentOrders.forEach((o) => {
-        const key = o.createdAt.toISOString().split('T')[0]!;
+        const key = localDate(o.createdAt, zone);
         if (dailyTrend[key]) {
           dailyTrend[key].revenue = Number(decimal(dailyTrend[key].revenue).plus(o.totalAmount).toFixed(2));
           dailyTrend[key].count += 1;
@@ -143,6 +142,7 @@ export class AnalyticsController {
         tablePerformance,
       });
     } catch (err: any) {
+      if (err instanceof BusinessDateError) { res.status(400).json({ error: err.message }); return; }
       res.status(500).json({ error: err.message });
     }
   }
@@ -160,20 +160,18 @@ export class AnalyticsController {
       }
 
       // Date range filters
-      const start = req.query.startDate ? new Date(req.query.startDate as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      const end = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
-      start.setHours(0, 0, 0, 0);
-      end.setHours(23, 59, 59, 999);
+      const zone = await restaurantTimezone(restaurantId);
+      const range = dateFilterRange(req.query.startDate, req.query.endDate, zone);
+      const start = range.gte;
+      const end = new Date(+range.lt - 1);
 
       // Core Date Ranges for Comparison
-      const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-      const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
-
-      const yesterdayStart = new Date(); yesterdayStart.setDate(yesterdayStart.getDate() - 1); yesterdayStart.setHours(0, 0, 0, 0);
-      const yesterdayEnd = new Date(); yesterdayEnd.setDate(yesterdayEnd.getDate() - 1); yesterdayEnd.setHours(23, 59, 59, 999);
-
-      const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - 6); weekStart.setHours(0, 0, 0, 0);
-      const monthStart = new Date(); monthStart.setDate(monthStart.getDate() - 29); monthStart.setHours(0, 0, 0, 0);
+      const todayStart = daysAgo(0, zone);
+      const todayEnd = new Date(+dayStart(addDays(localDate(new Date(), zone), 1), zone) - 1);
+      const yesterdayStart = daysAgo(1, zone);
+      const yesterdayEnd = new Date(+todayStart - 1);
+      const weekStart = daysAgo(6, zone);
+      const monthStart = daysAgo(29, zone);
 
       const getRevenueForRange = async (from: Date, to: Date) => {
         const agg = await prisma.order.aggregate({
@@ -294,7 +292,7 @@ export class AnalyticsController {
       const uniqueCustomers = new Set(completedOrders.map(o => o.customerId || o.id).filter(Boolean)).size;
       const revenuePerCustomer = uniqueCustomers > 0 ? parseFloat((netSales / uniqueCustomers).toFixed(2)) : 0;
 
-      const uniqueHours = new Set(completedOrders.map(o => o.createdAt.getHours())).size;
+      const uniqueHours = new Set(completedOrders.map(o => localParts(o.createdAt, zone).hour)).size;
       const revenuePerHour = uniqueHours > 0 ? parseFloat((netSales / uniqueHours).toFixed(2)) : 0;
 
       // New vs Returning CRM metrics
@@ -326,7 +324,7 @@ export class AnalyticsController {
       const tableVisitsPerHour: Record<string, Set<string>> = {};
       completedOrders.forEach(o => {
         if (o.tableId) {
-          const hourKey = o.createdAt.toISOString().slice(0, 13);
+          const hourKey = localHourKey(o.createdAt, zone);
           if (!tableVisitsPerHour[hourKey]) {
             tableVisitsPerHour[hourKey] = new Set();
           }
@@ -382,6 +380,7 @@ export class AnalyticsController {
         }
       });
     } catch (err: any) {
+      if (err instanceof BusinessDateError) { res.status(400).json({ error: err.message }); return; }
       res.status(500).json({ error: err.message });
     }
   }
@@ -399,10 +398,10 @@ export class AnalyticsController {
       }
 
       // Date range filters
-      const start = req.query.startDate ? new Date(req.query.startDate as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      const end = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
-      start.setHours(0, 0, 0, 0);
-      end.setHours(23, 59, 59, 999);
+      const zone = await restaurantTimezone(restaurantId);
+      const range = dateFilterRange(req.query.startDate, req.query.endDate, zone);
+      const start = range.gte;
+      const end = new Date(+range.lt - 1);
 
       const [completedOrders, categoryGroup, menuItemsWithCategory] = await Promise.all([
         prisma.order.findMany({
@@ -434,8 +433,7 @@ export class AnalyticsController {
       ]);
 
       // 1. Group Trends dynamically
-      const diffMs = end.getTime() - start.getTime();
-      const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+      const diffDays = calendarDaysSince(start, end, zone) + 1;
 
       let timeFormat: 'hour' | 'day' | 'week' | 'month' = 'day';
       if (diffDays <= 1) {
@@ -453,22 +451,22 @@ export class AnalyticsController {
         let key = '';
         let label = '';
         if (timeFormat === 'hour') {
-          const hour = o.createdAt.getHours();
+          const hour = localParts(o.createdAt, zone).hour;
           key = `${hour}`;
           label = `${hour}:00`;
         } else if (timeFormat === 'day') {
-          key = o.createdAt.toISOString().slice(0, 10);
-          label = o.createdAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          key = localDate(o.createdAt, zone);
+          label = o.createdAt.toLocaleDateString('en-US', { timeZone: zone, month: 'short', day: 'numeric' });
         } else if (timeFormat === 'week') {
-          const date = new Date(o.createdAt);
-          const oneJan = new Date(date.getFullYear(), 0, 1);
+          const date = new Date(localDate(o.createdAt, zone) + 'T00:00:00Z');
+          const oneJan = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
           const numberOfDays = Math.floor((date.getTime() - oneJan.getTime()) / (24 * 60 * 60 * 1000));
-          const week = Math.ceil((date.getDay() + 1 + numberOfDays) / 7);
-          key = `${date.getFullYear()}-W${week}`;
+          const week = Math.floor((oneJan.getUTCDay() + numberOfDays) / 7) + 1;
+          key = `${date.getUTCFullYear()}-W${week}`;
           label = `Week ${week}`;
         } else {
-          key = o.createdAt.toISOString().slice(0, 7);
-          label = o.createdAt.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+          key = localDate(o.createdAt, zone).slice(0, 7);
+          label = o.createdAt.toLocaleDateString('en-US', { timeZone: zone, month: 'short', year: '2-digit' });
         }
 
         if (!trendsMap[key]) {
@@ -484,8 +482,8 @@ export class AnalyticsController {
       // 2. Sales Heatmap
       const heatmapMap: Record<string, number> = {};
       completedOrders.forEach(o => {
-        const day = o.createdAt.getDay();
-        const hour = o.createdAt.getHours();
+        const day = localParts(o.createdAt, zone).weekday;
+        const hour = localParts(o.createdAt, zone).hour;
         const key = `${day}_${hour}`;
         heatmapMap[key] = moneyNumber(decimal(heatmapMap[key] ?? 0).plus(o.totalAmount));
       });
@@ -512,17 +510,17 @@ export class AnalyticsController {
       let dinnerRevenue = 0;
 
       completedOrders.forEach(o => {
-        const dateStr = o.createdAt.toISOString().slice(0, 10);
+        const dateStr = localDate(o.createdAt, zone);
         dailyRevenue[dateStr] = moneyNumber(decimal(dailyRevenue[dateStr] ?? 0).plus(o.totalAmount));
 
-        const day = o.createdAt.getDay();
+        const day = localParts(o.createdAt, zone).weekday;
         if (day === 0 || day === 6) {
           weekendRevenue = moneyNumber(decimal(weekendRevenue).plus(o.totalAmount));
         } else {
           weekdayRevenue = moneyNumber(decimal(weekdayRevenue).plus(o.totalAmount));
         }
 
-        const hr = o.createdAt.getHours();
+        const hr = localParts(o.createdAt, zone).hour;
         if (hr >= 11 && hr < 16) {
           lunchRevenue = moneyNumber(decimal(lunchRevenue).plus(o.totalAmount));
         } else if (hr >= 18 && hr < 23) {
@@ -577,6 +575,7 @@ export class AnalyticsController {
         categoryRevenue
       });
     } catch (err: any) {
+      if (err instanceof BusinessDateError) { res.status(400).json({ error: err.message }); return; }
       res.status(500).json({ error: err.message });
     }
   }
@@ -593,10 +592,10 @@ export class AnalyticsController {
         return;
       }
 
-      const start = req.query.startDate ? new Date(req.query.startDate as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      const end = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
-      start.setHours(0, 0, 0, 0);
-      end.setHours(23, 59, 59, 999);
+      const zone = await restaurantTimezone(restaurantId);
+      const range = dateFilterRange(req.query.startDate, req.query.endDate, zone);
+      const start = range.gte;
+      const end = new Date(+range.lt - 1);
 
       const [completedOrders, statusGroups, qrViews, cartSessions] = await Promise.all([
         prisma.order.findMany({
@@ -708,6 +707,7 @@ export class AnalyticsController {
         }
       });
     } catch (err: any) {
+      if (err instanceof BusinessDateError) { res.status(400).json({ error: err.message }); return; }
       res.status(500).json({ error: err.message });
     }
   }
@@ -724,10 +724,10 @@ export class AnalyticsController {
         return;
       }
 
-      const start = req.query.startDate ? new Date(req.query.startDate as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      const end = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
-      start.setHours(0, 0, 0, 0);
-      end.setHours(23, 59, 59, 999);
+      const zone = await restaurantTimezone(restaurantId);
+      const range = dateFilterRange(req.query.startDate, req.query.endDate, zone);
+      const start = range.gte;
+      const end = new Date(+range.lt - 1);
 
       const [itemSales, menuItems, recipes, ordersWithItems] = await Promise.all([
         prisma.orderItem.groupBy({
@@ -832,6 +832,7 @@ export class AnalyticsController {
         bundles
       });
     } catch (err: any) {
+      if (err instanceof BusinessDateError) { res.status(400).json({ error: err.message }); return; }
       res.status(500).json({ error: err.message });
     }
   }
@@ -848,10 +849,10 @@ export class AnalyticsController {
         return;
       }
 
-      const start = req.query.startDate ? new Date(req.query.startDate as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      const end = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
-      start.setHours(0, 0, 0, 0);
-      end.setHours(23, 59, 59, 999);
+      const zone = await restaurantTimezone(restaurantId);
+      const range = dateFilterRange(req.query.startDate, req.query.endDate, zone);
+      const start = range.gte;
+      const end = new Date(+range.lt - 1);
 
       // Fetch all customer profiles for this restaurant
       const profiles = await prisma.customerRestaurantProfile.findMany({
@@ -884,7 +885,7 @@ export class AnalyticsController {
         totalLtvSum = moneyNumber(decimal(totalLtvSum).plus(p.ltv ?? 0));
         totalFreqSum += p.visitFrequency || 0;
 
-        const daysSinceLastVisit = (now.getTime() - p.lastVisit.getTime()) / (1000 * 60 * 60 * 24);
+        const daysSinceLastVisit = calendarDaysSince(p.lastVisit, now, zone);
 
         if (decimal(p.totalSpend).gt(5000)) {
           vip++;
@@ -908,14 +909,13 @@ export class AnalyticsController {
 
       const checkUpcoming = (date: Date | null) => {
         if (!date) return false;
-        const eventMonth = date.getMonth();
-        const eventDay = date.getDate();
+        const eventMonth = date.getUTCMonth();
+        const eventDay = date.getUTCDate();
         
         // Check next 7 days
         for (let i = 0; i < 7; i++) {
-          const checkDate = new Date();
-          checkDate.setDate(now.getDate() + i);
-          if (checkDate.getMonth() === eventMonth && checkDate.getDate() === eventDay) {
+          const checkDate = new Date(addDays(localDate(now, zone), i) + 'T00:00:00Z');
+          if (checkDate.getUTCMonth() === eventMonth && checkDate.getUTCDate() === eventDay) {
             return true;
           }
         }
@@ -961,6 +961,7 @@ export class AnalyticsController {
         retentionMatrix
       });
     } catch (err: any) {
+      if (err instanceof BusinessDateError) { res.status(400).json({ error: err.message }); return; }
       res.status(500).json({ error: err.message });
     }
   }
@@ -977,10 +978,10 @@ export class AnalyticsController {
         return;
       }
 
-      const start = req.query.startDate ? new Date(req.query.startDate as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      const end = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
-      start.setHours(0, 0, 0, 0);
-      end.setHours(23, 59, 59, 999);
+      const zone = await restaurantTimezone(restaurantId);
+      const range = dateFilterRange(req.query.startDate, req.query.endDate, zone);
+      const start = range.gte;
+      const end = new Date(+range.lt - 1);
 
       const [ledgerPoints, redemptions, joinedCount, activeCount] = await Promise.all([
         prisma.loyaltyLedger.groupBy({
@@ -1014,7 +1015,7 @@ export class AnalyticsController {
         prisma.customerRestaurantProfile.count({
           where: {
             restaurantId,
-            lastVisit: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
+            lastVisit: { gte: daysAgo(30, zone) }
           }
         })
       ]);
@@ -1066,6 +1067,7 @@ export class AnalyticsController {
         couponRoi
       });
     } catch (err: any) {
+      if (err instanceof BusinessDateError) { res.status(400).json({ error: err.message }); return; }
       res.status(500).json({ error: err.message });
     }
   }
@@ -1085,7 +1087,7 @@ export class AnalyticsController {
     const restaurantId = req.user.restaurantId;
     if (!restaurantId) return void res.status(400).json({ error: 'No restaurant linked to this session' });
     try {
-      const range = analyticsDates(req.query.startDate, req.query.endDate);
+      const range = analyticsDates(req.query.startDate, req.query.endDate, new Date(), await restaurantTimezone(restaurantId));
       res.status(200).json(await query(restaurantId, range));
     } catch (error) {
       if (error instanceof AnalyticsDateError) return void res.status(400).json({ error: error.message });

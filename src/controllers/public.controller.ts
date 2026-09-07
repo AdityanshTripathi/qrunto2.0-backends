@@ -59,6 +59,7 @@ export class PublicController {
           id: true,
           name: true,
           slug: true,
+          timezone: true,
           logoUrl: true,
           isActive: true,
           settings: {
@@ -102,6 +103,7 @@ export class PublicController {
           id: restaurant.id,
           name: restaurant.name,
           slug: restaurant.slug,
+          timezone: restaurant.timezone,
           logoUrl: restaurant.logoUrl,
         },
         settings: {

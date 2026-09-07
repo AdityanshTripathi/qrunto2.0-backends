@@ -1,3 +1,4 @@
+import { restaurantTimezone, dateInput } from '../../lib/timezone';
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { RawMaterialService } from '../../services/inventory/raw-material.service';
@@ -18,7 +19,7 @@ const CreateRawMaterialSchema = z.object({
   reorderQuantity: z.number().nonnegative(),
   purchasePrice: z.number().nonnegative(),
   averageCost: z.number().nonnegative(),
-  expiryDate: z.string().datetime({ precision: 3 }).or(z.string().datetime()).optional().nullable(),
+  expiryDate: z.string().datetime({ precision: 3 }).or(z.string().datetime()).or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).optional().nullable(),
   storageLocation: z.string().max(100).optional().nullable(),
   notes: z.string().max(1000).optional().nullable(),
   status: z.nativeEnum(RawMaterialStatus).optional(),
@@ -107,6 +108,7 @@ export class RawMaterialController {
       }
 
       const data = validationResult.data;
+      const zone = await restaurantTimezone(restaurantId);
       const payload: any = {
         name: data.name,
         category: data.category,
@@ -122,7 +124,7 @@ export class RawMaterialController {
       };
 
       if (data.supplierId !== undefined && data.supplierId !== null) payload.supplierId = data.supplierId;
-      if (data.expiryDate !== undefined && data.expiryDate !== null) payload.expiryDate = new Date(data.expiryDate);
+      if (data.expiryDate !== undefined && data.expiryDate !== null) payload.expiryDate = dateInput(data.expiryDate, zone, true);
       if (data.storageLocation !== undefined && data.storageLocation !== null) payload.storageLocation = data.storageLocation;
       if (data.notes !== undefined && data.notes !== null) payload.notes = data.notes;
       if (data.status !== undefined) payload.status = data.status;
@@ -156,6 +158,7 @@ export class RawMaterialController {
       }
 
       const data = validationResult.data;
+      const zone = await restaurantTimezone(restaurantId);
       const payload: any = {};
       
       if (data.name !== undefined) payload.name = data.name;
@@ -170,7 +173,7 @@ export class RawMaterialController {
       if (data.purchasePrice !== undefined) payload.purchasePrice = data.purchasePrice;
       if (data.averageCost !== undefined) payload.averageCost = data.averageCost;
       if (data.supplierId !== undefined) payload.supplierId = data.supplierId || null;
-      if (data.expiryDate !== undefined) payload.expiryDate = data.expiryDate ? new Date(data.expiryDate) : null;
+      if (data.expiryDate !== undefined) payload.expiryDate = data.expiryDate ? dateInput(data.expiryDate, zone, true) : null;
       if (data.storageLocation !== undefined) payload.storageLocation = data.storageLocation || null;
       if (data.notes !== undefined) payload.notes = data.notes || null;
       if (data.status !== undefined) payload.status = data.status;

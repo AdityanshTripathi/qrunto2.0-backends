@@ -1,3 +1,4 @@
+import { restaurantTimezone, dateRange } from '../lib/timezone';
 import { prisma } from '../lib/prisma';
 import { Order, OrderStatus, OrderItem, RestaurantTable, Payment } from '@prisma/client';
 
@@ -41,11 +42,8 @@ export class OrderRepository {
     }
 
     if (filters.date) {
-      const start = new Date(filters.date);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(filters.date);
-      end.setHours(23, 59, 59, 999);
-      where.createdAt = { gte: start, lte: end };
+      const day = filters.date.toISOString().slice(0, 10);
+      where.createdAt = dateRange(day, day, await restaurantTimezone(restaurantId));
     } else if (filters.startDate || filters.endDate) {
       where.createdAt = {
         ...(filters.startDate ? { gte: filters.startDate } : {}),

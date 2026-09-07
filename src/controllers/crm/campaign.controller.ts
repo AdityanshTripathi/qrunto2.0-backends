@@ -1,3 +1,4 @@
+import { restaurantTimezone, timezone, localDateTime, BusinessDateError } from '../../lib/timezone';
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../../middlewares/auth.middleware';
 import { prisma } from '../../lib/prisma';
@@ -28,7 +29,7 @@ export class CampaignController {
 
       const ownerRecord = await prisma.user.findUnique({
         where: { id: user.id },
-        include: { restaurants: { select: { brandId: true } } }
+        include: { restaurants: { select: { brandId: true, timezone: true } } }
       });
 
       const brandId = ownerRecord?.restaurants?.[0]?.brandId;
@@ -61,7 +62,7 @@ export class CampaignController {
 
       const ownerRecord = await prisma.user.findUnique({
         where: { id: user.id },
-        include: { restaurants: { select: { brandId: true } } }
+        include: { restaurants: { select: { brandId: true, timezone: true } } }
       });
 
       const brandId = ownerRecord?.restaurants?.[0]?.brandId;
@@ -70,17 +71,19 @@ export class CampaignController {
         return;
       }
 
+      const zone = user.restaurantId ? await restaurantTimezone(user.restaurantId) : timezone(ownerRecord?.restaurants?.[0]?.timezone);
       const campaign = await campaignService.createCampaign(brandId, {
         name: validation.data.name,
         channel: validation.data.channel as CampaignChannel,
         segmentId: validation.data.segmentId,
         templateSubject: validation.data.templateSubject,
         templateBody: validation.data.templateBody,
-        scheduledAt: new Date(validation.data.scheduledAt),
+        scheduledAt: localDateTime(validation.data.scheduledAt, zone),
       });
 
       res.status(201).json({ message: 'Campaign queued successfully', campaign });
     } catch (err: any) {
+      if (err instanceof BusinessDateError) { res.status(400).json({ error: err.message }); return; }
       res.status(500).json({ error: err.message });
     }
   }
@@ -98,7 +101,7 @@ export class CampaignController {
 
       const ownerRecord = await prisma.user.findUnique({
         where: { id: user.id },
-        include: { restaurants: { select: { brandId: true } } }
+        include: { restaurants: { select: { brandId: true, timezone: true } } }
       });
 
       const brandId = ownerRecord?.restaurants?.[0]?.brandId;
@@ -127,7 +130,7 @@ export class CampaignController {
 
       const ownerRecord = await prisma.user.findUnique({
         where: { id: user.id },
-        include: { restaurants: { select: { brandId: true } } }
+        include: { restaurants: { select: { brandId: true, timezone: true } } }
       });
 
       const brandId = ownerRecord?.restaurants?.[0]?.brandId;
@@ -154,7 +157,7 @@ export class CampaignController {
 
       const ownerRecord = await prisma.user.findUnique({
         where: { id: user.id },
-        include: { restaurants: { select: { brandId: true } } }
+        include: { restaurants: { select: { brandId: true, timezone: true } } }
       });
 
       const brandId = ownerRecord?.restaurants?.[0]?.brandId;

@@ -25,7 +25,7 @@ export interface UserResponse {
   name: string;
   email: string;
   role: UserRole | 'WAITER';
-  restaurants: Pick<Restaurant, 'id' | 'name' | 'slug' | 'logoUrl'>[];
+  restaurants: Pick<Restaurant, 'id' | 'name' | 'slug' | 'logoUrl' | 'timezone'>[];
 }
 
 export class AuthService {
@@ -208,6 +208,7 @@ export class AuthService {
             id: waiter.restaurant.id,
             name: waiter.restaurant.name,
             slug: waiter.restaurant.slug,
+                timezone: waiter.restaurant.timezone,
             logoUrl: waiter.restaurant.logoUrl,
           },
         ],
