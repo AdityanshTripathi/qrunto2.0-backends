@@ -1,6 +1,6 @@
 import { calendarDaysSince, timezone } from '../../lib/timezone';
 import { prisma } from '../../lib/prisma';
-import { moneyNumber } from '../../lib/money';
+import { decimal, moneyNumber } from '../../lib/money';
 
 export interface RFMResult {
   customerId: string;
@@ -31,11 +31,11 @@ export class RFMService {
 
     // Map customers to their raw R, F, M values
     const rawData = customers.map((c) => {
-      const profile = c.profiles?.[0];
+      const profile = [...c.profiles].sort((a, b) => +b.lastVisit - +a.lastVisit)[0];
       const lastVisit = profile?.lastVisit ? new Date(profile.lastVisit) : c.createdAt;
       const recencyDays = Math.max(0, calendarDaysSince(lastVisit, now, timezone(profile?.restaurant?.timezone)));
-      const frequency = profile?.totalOrders ?? 0;
-      const monetary = moneyNumber(profile?.totalSpend ?? 0);
+      const frequency = c.profiles.reduce((sum, p) => sum + p.totalOrders, 0);
+      const monetary = moneyNumber(c.profiles.reduce((sum, p) => sum.plus(p.totalSpend), decimal(0)));
 
       return {
         customerId: c.id,

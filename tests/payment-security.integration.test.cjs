@@ -16,6 +16,7 @@ const { OrderService } = require(`${prefix}/services/order.service`);
 const { OrderController } = require(`${prefix}/controllers/order.controller`);
 const { DeductionQueueService } = require(`${prefix}/services/inventory/deduction-queue.service`);
 const { LoyaltyService } = require(`${prefix}/services/crm/loyalty.service`);
+const { ProfilerService } = require(`${prefix}/services/crm/profiler.service`);
 const service = new OrderService();
 let db, a, b, order;
 const response = () => ({ code: 200, status(n) { this.code=n; return this; }, json(body) { this.body=body; return this; } });
@@ -59,6 +60,7 @@ test('Electronic confirmation and direct PAID transition are rejected', async ()
 test('Concurrent cash requests contend on tenant/status/amount claim; effects happen once', async t => {
   t.mock.method(DeductionQueueService,'enqueueDeduction',async()=>{});
   order.customerId='customer'; a.restaurant.brandId='brand'; let earned=0;
+  t.mock.method(ProfilerService.prototype,'refreshPurchaseMetrics',async()=>{});
   t.mock.method(LoyaltyService.prototype,'earnPoints',async()=>{earned++;});
   // Force both requests to read the same unpaid state before the conditional write.
   const find=prisma.order.findFirst; let reads=0,release;

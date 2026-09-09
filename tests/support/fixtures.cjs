@@ -60,6 +60,7 @@ function fixtures() {
   prisma.notification.create = async ({ data: values }) => copy(values);
   prisma.payment.create = async ({ data: values }) => create(data.payments, values);
   prisma.payment.findFirst = async ({ where }) => copy(data.payments.find(row => match(row, where)));
+  prisma.payment.findMany = async ({ where }) => data.payments.filter(row => match(row, where)).map(copy);
   prisma.transaction.create = async ({ data: values }) => create(data.transactions, values);
   prisma.$transaction = async callback => {
     const snapshot = structuredClone(data);

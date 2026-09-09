@@ -105,6 +105,7 @@ export class DeductionQueueService {
         // Idempotency check: check if stock has already been deducted for this order item
         const existingLedger = await tx.stockLedger.findFirst({
           where: {
+            restaurantId,
             referenceId: item.id,
             actionType: LedgerActionType.SALE_DEDUCTION,
           },
@@ -169,6 +170,6 @@ export class DeductionQueueService {
           metadata: { restaurantId, requestId: getRequestId() },
         },
       });
-    });
+    }, { isolationLevel: 'Serializable' });
   }
 }

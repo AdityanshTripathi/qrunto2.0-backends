@@ -25,12 +25,14 @@ test('Money: percentage coupon rounds once, caps safely and applies only once', 
   const updates = [];
   const service = new CouponService();
   const tx = {
+    customer: { findFirst: async () => ({ brandId: 'brand' }) },
+    restaurant: { findUnique: async () => ({ brandId: 'brand' }) },
     coupon: { findFirst: async () => ({ id: 'coupon', discountType: 'PERCENTAGE', discountValue: decimal('33.333'), minOrderAmount: decimal('0'), maxDiscountAmount: decimal('40') }) },
-    customerCoupon: { findFirst: async () => ({ id: 'issue' }), update: async value => updates.push(value) },
+    customerCoupon: { findFirst: async () => ({ id: 'issue' }), updateMany: async value => { updates.push(value); return { count: 1 }; } },
   };
-  assert.equal((await service.validateAndRedeem('customer', 'CODE', 100, 'order', tx)).discountAmount, 33.33);
+  assert.equal((await service.validateAndRedeem('customer', 'CODE', 100, 'order', tx, 'restaurant')).discountAmount, 33.33);
   tx.coupon.findFirst = async () => ({ id: 'coupon', discountType: 'PERCENTAGE', discountValue: decimal('99'), minOrderAmount: decimal('0'), maxDiscountAmount: decimal('12.345') });
-  assert.equal((await service.validateAndRedeem('customer', 'CODE', 100, 'order', tx)).discountAmount, 12.35);
+  assert.equal((await service.validateAndRedeem('customer', 'CODE', 100, 'order', tx, 'restaurant')).discountAmount, 12.35);
   assert.equal(updates.length, 2);
 });
 

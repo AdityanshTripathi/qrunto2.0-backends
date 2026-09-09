@@ -52,7 +52,7 @@ export async function financialAnalytics(restaurantId: string, range: Range) {
     prisma.payment.aggregate({ where: { restaurantId, order: orders, status: { in: ['SUCCESS', 'REFUNDED'] } }, _sum: { refundedAmount: true } }),
     prisma.expenses.groupBy({ by: ['category'], where: { restaurant_id: restaurantId, expense_date: range }, _sum: { amount: true } }),
     prisma.payment.groupBy({ by: ['paymentMethod'], where: {
-      restaurantId, order: orders, status: { in: ['SUCCESS', 'REFUNDED'] }, paidAt: range,
+      restaurantId, order: orders, status: { in: ['SUCCESS', 'REFUNDED'] },
     }, _sum: { amount: true, refundedAmount: true } }),
   ]);
   const gross = decimal(sales._sum.subtotal ?? 0).plus(sales._sum.taxAmount ?? 0);

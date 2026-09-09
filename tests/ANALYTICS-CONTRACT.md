@@ -59,10 +59,10 @@ available to callers without changing the existing rendered fields.
   these are current recorded refunds on the selected orders, not refunds occurring
   during the range. No tax/refund allocation is invented.
 - Payment splits use recorded amounts minus refunds for successful/refunded
-  payments on the selected completed orders, additionally filtered by paidAt.
+  payments on the selected completed orders, regardless of payment date.
   Null/unknown methods go to other; pending/failed and unrelated payments are
   excluded. Splits may differ from order revenue (e.g. served/unpaid orders or
-  payment outside the range). No reconciliation or fabricated allocation occurs.
+  partial payment). This uses the same order cohort as net sales and refunds.
 - Expenses group stored amount by category and expense_date. Profit remains net
   minus recorded expenses; grossMargin retains the UI's profit/net convention.
   These include recorded GST and are operational totals, not statutory profit or

@@ -1,6 +1,38 @@
 import { prisma } from '../../lib/prisma';
+import { decimal } from '../../lib/money';
+import { calendarDaysSince, timezone } from '../../lib/timezone';
+import type { Prisma } from '@prisma/client';
 
 export class ProfilerService {
+  async refreshPurchaseMetrics(customerId: string, restaurantId: string, tx: Prisma.TransactionClient): Promise<void> {
+    // Lock this profile before aggregating so simultaneous paid orders cannot
+    // overwrite one another's derived totals. Historical simulator rows are excluded.
+    await tx.customerRestaurantProfile.upsert({
+      where: { customerId_restaurantId: { customerId, restaurantId } },
+      create: { customerId, restaurantId },
+      update: { totalOrders: { increment: 0 } },
+    });
+    const payment = { restaurantId, paymentMethod: 'CASH', status: { in: ['SUCCESS', 'REFUNDED'] as ('SUCCESS' | 'REFUNDED')[] }, razorpayOrderId: null, razorpayPaymentId: null };
+    const orders = { customerId, restaurantId, status: 'PAID' as const, payments: { some: payment } };
+    const totals = await tx.order.aggregate({ where: orders, _sum: { totalAmount: true }, _count: { id: true }, _min: { createdAt: true }, _max: { createdAt: true } });
+    const refunds = await tx.payment.aggregate({ where: { ...payment, order: orders }, _sum: { refundedAmount: true } });
+    const restaurant = await tx.restaurant.findUnique({ where: { id: restaurantId }, select: { timezone: true } });
+    const count = totals._count.id;
+    const spend = decimal(totals._sum.totalAmount ?? 0).minus(refunds._sum.refundedAmount ?? 0);
+    if (spend.lt(0)) throw new Error('Customer payment reconciliation required');
+    const first = totals._min.createdAt, last = totals._max.createdAt;
+    await tx.customerRestaurantProfile.update({
+      where: { customerId_restaurantId: { customerId, restaurantId } },
+      data: {
+        totalOrders: count, totalSpend: spend, ltv: spend,
+        aov: count ? spend.dividedBy(count).toDecimalPlaces(6) : decimal(0),
+        ...(first && last ? { firstVisit: first, lastVisit: last } : {}),
+        visitFrequency: count > 1 && first && last ? calendarDaysSince(first, last, timezone(restaurant?.timezone)) / (count - 1) : 0,
+        repeatStatus: count > 1 ? 'REPEAT' : 'NEW',
+      },
+    });
+  }
+
   /**
    * Links or creates a customer profile during order checkout under the restaurant/brand context.
    * If a customer exists with this phone number under the brand, returns their customer ID.

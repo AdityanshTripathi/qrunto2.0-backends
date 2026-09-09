@@ -115,15 +115,21 @@ export class CouponService {
     customerId: string,
     couponCode: string,
     orderAmount: number,
-    orderId: string,
-    tx?: any
-  ): Promise<{ discountAmount: number }> {
+    orderId: string | null,
+    tx?: any,
+    restaurantId?: string
+  ): Promise<{ discountAmount: number; issuanceId: string }> {
     const client = tx || prisma;
     const now = new Date();
+    if (!tx || !restaurantId) throw new Error('Coupon redemption requires an order transaction and restaurant');
+    const customer = await client.customer.findFirst({ where: { id: customerId, profiles: { some: { restaurantId } } } });
+    const restaurant = await client.restaurant.findUnique({ where: { id: restaurantId }, select: { brandId: true } });
+    if (!customer || !restaurant?.brandId || customer.brandId !== restaurant.brandId) throw new Error('Customer not found in this restaurant brand');
 
     // 1. Find coupon template
     const coupon = await client.coupon.findFirst({
       where: {
+        brandId: restaurant.brandId,
         code: { equals: couponCode, mode: 'insensitive' },
         isActive: true,
         startDate: { lte: now },
@@ -168,8 +174,8 @@ export class CouponService {
     discountAmount = money(discountAmount);
 
     // 5. Update issuance record to REDEEMED
-    await client.customerCoupon.update({
-      where: { id: issuance.id },
+    const claimed = await client.customerCoupon.updateMany({
+      where: { id: issuance.id, customerId, couponId: coupon.id, isRedeemed: false },
       data: {
         isRedeemed: true,
         redeemedAt: now,
@@ -177,6 +183,7 @@ export class CouponService {
       },
     });
 
-    return { discountAmount: moneyNumber(discountAmount) };
+    if (claimed.count !== 1) throw new Error('Coupon already redeemed');
+    return { discountAmount: moneyNumber(discountAmount), issuanceId: issuance.id };
   }
 }

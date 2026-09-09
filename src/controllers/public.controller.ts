@@ -311,6 +311,7 @@ export class PublicController {
 
           // Points redemption discount calculation (1 point = ₹1)
           let pointsDiscount = 0;
+          let couponIssuanceId: string | undefined;
           if (redeemPoints && redeemPoints > 0 && customerId) {
             const account = await tx.loyaltyAccount.findUnique({
               where: { customerId }
@@ -318,6 +319,7 @@ export class PublicController {
             if (!account || account.pointsBalance < redeemPoints) {
               throw new Error(`Insufficient points balance. Available: ${account?.pointsBalance || 0}, Requested: ${redeemPoints}`);
             }
+            if (decimal(newTotalAmount).lt(redeemPoints)) throw new Error('Points cannot exceed the payable amount');
             pointsDiscount = moneyNumber(decimal(newTotalAmount).lt(redeemPoints) ? newTotalAmount : redeemPoints);
           }
 
@@ -326,8 +328,9 @@ export class PublicController {
           let couponDiscount = 0;
           if (couponCode && couponCode.trim() !== '' && customerId) {
             const couponService = new CouponService();
-            const validation = await couponService.validateAndRedeem(customerId, couponCode, remainingAmount, 'TEMP_ORDER_ID', tx);
+            const validation = await couponService.validateAndRedeem(customerId, couponCode, remainingAmount, null, tx, restaurant.id);
             couponDiscount = validation.discountAmount;
+            couponIssuanceId = validation.issuanceId;
           }
 
           const finalTotalAmount = moneyNumber(money(decimal(remainingAmount).minus(couponDiscount)));
@@ -369,17 +372,13 @@ export class PublicController {
             await loyaltyService.redeemPoints(customerId, redeemPoints!, newOrder.id, tx);
           }
 
-          // Link the coupon redemption to the created order id
-          if (couponDiscount > 0 && couponCode && customerId) {
-            const couponTemplate = await tx.coupon.findFirst({
-              where: { code: { equals: couponCode, mode: 'insensitive' } }
+          // Link only the issuance claimed in this transaction, after the real order exists.
+          if (couponIssuanceId && customerId) {
+            const linked = await tx.customerCoupon.updateMany({
+              where: { id: couponIssuanceId, customerId, isRedeemed: true, orderId: null },
+              data: { orderId: newOrder.id },
             });
-            if (couponTemplate) {
-              await tx.customerCoupon.updateMany({
-                where: { customerId, couponId: couponTemplate.id, orderId: 'TEMP_ORDER_ID' },
-                data: { orderId: newOrder.id }
-              });
-            }
+            if (linked.count !== 1) throw new Error('Coupon redemption could not be linked');
           }
 
           await tx.notification.create({

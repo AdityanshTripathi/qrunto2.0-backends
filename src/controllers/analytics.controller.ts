@@ -226,7 +226,7 @@ export class AnalyticsController {
             status: { in: ['SERVED', 'PAID'] },
             createdAt: { gte: start, lte: end }
           },
-          _sum: { subtotal: true, taxAmount: true },
+          _sum: { subtotal: true, taxAmount: true, totalAmount: true },
           _count: { id: true }
         }),
         prisma.order.groupBy({
@@ -246,6 +246,8 @@ export class AnalyticsController {
         }),
         prisma.payment.aggregate({
           where: {
+            restaurantId,
+            status: { in: ['SUCCESS', 'REFUNDED'] },
             order: {
               restaurantId,
               status: { in: ['SERVED', 'PAID'] },
@@ -277,9 +279,9 @@ export class AnalyticsController {
       const cancelledCount = statusCount('CANCELLED');
 
       const grossSales = moneyNumber(decimal(completedAggregate._sum.subtotal ?? 0).plus(completedAggregate._sum.taxAmount ?? 0));
-      const discountsGiven = moneyNumber(completedOrders.reduce((sum, o) => sum.plus(o.invoice?.discount ?? 0), decimal(0)));
+      const discountsGiven = moneyNumber(decimal(grossSales).minus(completedAggregate._sum.totalAmount ?? 0));
       const refundAmount = refundAggregate._sum.refundedAmount ?? 0;
-      const gstCollected = moneyNumber(completedOrders.reduce((sum, o) => sum.plus(o.invoice?.gst ?? o.taxAmount ?? 0), decimal(0)));
+      const gstCollected = moneyNumber(completedAggregate._sum.taxAmount ?? 0);
       const netSales = moneyNumber(decimal(grossSales).minus(discountsGiven).minus(refundAmount));
 
       const aov = completedCount > 0 ? parseFloat((netSales / completedCount).toFixed(2)) : 0;

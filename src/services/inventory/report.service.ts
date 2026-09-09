@@ -68,8 +68,8 @@ export class ReportService {
     }
 
     const stockHealthScore = totalItems > 0
-      ? Math.max(0, Math.round((1 - (lowStockItems + outOfStockItems) / totalItems) * 100))
-      : 100;
+      ? Math.max(0, Math.round((1 - (lowStockItems) / totalItems) * 100))
+      : null;
 
     let todayConsumption = 0;
     for (const entry of ledgersToday) {
@@ -134,10 +134,10 @@ export class ReportService {
       const avgCost = entry.rawMaterial?.averageCost || 0;
       const cost = moneyNumber(decimal(Math.abs(entry.quantity)).times(avgCost));
 
-      dailyData[dateStr] = (dailyData[dateStr] || 0) + cost;
+      dailyData[dateStr] = moneyNumber(decimal(dailyData[dateStr] ?? 0).plus(cost));
 
       const itemName = entry.rawMaterial?.name || 'Unknown';
-      itemData[itemName] = (itemData[itemName] || 0) + cost;
+      itemData[itemName] = moneyNumber(decimal(itemData[itemName] ?? 0).plus(cost));
     }
 
     // Format for charts

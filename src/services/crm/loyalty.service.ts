@@ -44,18 +44,18 @@ export class LoyaltyService {
 
     // 2. Sum customer's total spend across all outlets of the Brand
     const profiles = await client.customerRestaurantProfile.findMany({
-      where: { customerId },
+      where: { customerId, restaurant: { brandId } },
     });
     
-    const totalSpend = profiles.reduce((sum: number, profile: any) => sum + (profile.totalSpend || 0), 0);
+    const totalSpend = profiles.reduce((sum: ReturnType<typeof decimal>, profile: any) => sum.plus(profile.totalSpend ?? 0), decimal(0));
 
     // 3. Find highest qualifying tier
-    const qualifyingTier = tiers.find((tier: any) => totalSpend >= tier.minSpend);
+    const qualifyingTier = tiers.find((tier: any) => totalSpend.gte(tier.minSpend));
 
     if (qualifyingTier) {
       // Update customer profiles to link to this qualified tier
       await client.customerRestaurantProfile.updateMany({
-        where: { customerId },
+        where: { customerId, restaurant: { brandId } },
         data: { loyaltyTierId: qualifyingTier.id },
       });
 
@@ -114,9 +114,10 @@ export class LoyaltyService {
     orderId: string,
     tx?: any
   ): Promise<any> {
-    const client = tx || prisma;
+    if (!tx) return prisma.$transaction(client => this.redeemPoints(customerId, pointsToRedeem, orderId, client));
+    const client = tx;
 
-    if (pointsToRedeem <= 0) {
+    if (!Number.isSafeInteger(pointsToRedeem) || pointsToRedeem <= 0) {
       throw new Error('Points to redeem must be greater than zero');
     }
 
@@ -127,6 +128,13 @@ export class LoyaltyService {
     if (account.pointsBalance < pointsToRedeem) {
       throw new Error(`Insufficient points balance. Available: ${account.pointsBalance}, Required: ${pointsToRedeem}`);
     }
+
+    // Claim balance atomically before writing the ledger; concurrent orders cannot overspend.
+    const debit = await client.loyaltyAccount.updateMany({
+      where: { id: account.id, customerId, pointsBalance: { gte: pointsToRedeem } },
+      data: { pointsBalance: { decrement: pointsToRedeem } },
+    });
+    if (debit.count !== 1) throw new Error('Insufficient points balance');
 
     // 3. Log ledger entry
     await client.loyaltyLedger.create({
@@ -139,13 +147,7 @@ export class LoyaltyService {
       },
     });
 
-    // 4. Deduct balance
-    return client.loyaltyAccount.update({
-      where: { id: account.id },
-      data: {
-        pointsBalance: { decrement: pointsToRedeem },
-      },
-    });
+    return client.loyaltyAccount.findUnique({ where: { id: account.id } });
   }
 
   // Refund earned or redeemed points on order cancellations

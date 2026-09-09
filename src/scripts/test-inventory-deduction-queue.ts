@@ -92,7 +92,7 @@ async function orderToQueueIntegration(): Promise<void> {
   const jobs: Array<[string, string]> = [];
   let reads = 0;
   const tx = {
-    payment: { findFirst: async () => null, create: async () => ({ id: 'payment-1' }) },
+    payment: { findMany: async () => [], create: async () => ({ id: 'payment-1' }) },
     transaction: { create: async () => ({}) },
     restaurant: { findUnique: async () => null },
     order: {

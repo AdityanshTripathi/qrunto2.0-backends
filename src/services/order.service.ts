@@ -9,6 +9,7 @@ import { OrderStatus } from '@prisma/client';
 import { decimal, money, moneyNumber } from '../lib/money';
 import { prisma } from '../lib/prisma';
 import { LoyaltyService } from './crm/loyalty.service';
+import { ProfilerService } from './crm/profiler.service';
 import { DeductionQueueService } from './inventory/deduction-queue.service';
 
 const orderRepository = new OrderRepository();
@@ -83,7 +84,7 @@ export class OrderService {
   }
 
   async applyLoyaltyDiscount(id: string, restaurantId: string, pointsToRedeem: number): Promise<OrderWithDetails> {
-    if (pointsToRedeem <= 0) {
+    if (!Number.isSafeInteger(pointsToRedeem) || pointsToRedeem <= 0) {
       throw new Error('Points to redeem must be greater than zero');
     }
 
@@ -100,6 +101,10 @@ export class OrderService {
       if (!order.customerId) {
         throw new Error('Order is not linked to a customer profile');
       }
+
+      if (decimal(order.totalAmount).lt(pointsToRedeem)) throw new Error('Points cannot exceed the payable amount');
+      const redeemed = await tx.loyaltyLedger.findFirst({ where: { orderId: id, transactionType: 'REDEMPTION' } });
+      if (redeemed) throw new Error('Loyalty discount already applied to this order');
 
       // 1. Verify points balance
       const account = await tx.loyaltyAccount.findUnique({
@@ -154,9 +159,12 @@ export class OrderService {
       if (order.status === OrderStatus.CANCELLED) throw new Error('Cannot settle a cancelled order');
       if (decimal(order.totalAmount).lt(0)) throw new Error('Invalid order amount');
       // Existing partial/refunded payments require reconciliation, never another full charge.
-      const existing = await tx.payment.findFirst({
+      const existingPayments = await tx.payment.findMany({
         where: { orderId: id, restaurantId, status: { in: ['SUCCESS', 'REFUNDED'] } },
       });
+      if (existingPayments.length > 1) throw new Error('Payment reconciliation required');
+      const existing = existingPayments[0];
+      if (existing && (existing.razorpayOrderId || existing.razorpayPaymentId || existing.paymentMethod !== 'CASH')) throw new Error('Payment reconciliation required');
       if (existing && (existing.status === 'REFUNDED' || decimal(existing.refundedAmount ?? 0).gt(0))) {
         throw new Error('Refunded payment cannot be settled again');
       }
@@ -205,6 +213,7 @@ export class OrderService {
       triggerDeduction = true;
 
       // 4. Earn loyalty points
+      if (order.customerId) await new ProfilerService().refreshPurchaseMetrics(order.customerId, restaurantId, tx);
       const restaurant = await tx.restaurant.findUnique({
         where: { id: restaurantId },
         select: { brandId: true },
