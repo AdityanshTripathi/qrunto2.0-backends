@@ -192,6 +192,18 @@ app.get('/ready', async (_req: Request, res: Response) => {
   res.status(readiness.status === 'healthy' ? 200 : 503).json(readiness);
 });
 
+
+// GLOBAL_SANITIZED_ERROR_HANDLER
+app.use((err: unknown, _req: Request, res: Response, _next: any) => {
+  if (err instanceof Error && err.message === 'Origin is not allowed by CORS') {
+    res.status(403).json({ error: 'Origin is not allowed by CORS' });
+    return;
+  }
+
+  console.error('[Unhandled API error]', err);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
 if (!process.env.VERCEL) {
   server.listen(port, () => {
     logStructured('info', 'api', 'startup', 'ready', 'Server listening', { port });

@@ -14,6 +14,20 @@ export interface CreateCampaignInput {
 export class CampaignService {
   // Create a new messaging campaign
   async createCampaign(brandId: string, data: CreateCampaignInput): Promise<any> {
+    if (data.segmentId) {
+      const segment = await prisma.segment.findFirst({
+        where: {
+          id: data.segmentId,
+          brandId,
+        },
+        select: { id: true },
+      });
+
+      if (!segment) {
+        throw new Error('Segment not found or unauthorized');
+      }
+    }
+
     return prisma.campaign.create({
       data: {
         brandId,
@@ -50,7 +64,7 @@ export class CampaignService {
     }
 
     await prisma.campaign.delete({
-      where: { id: campaignId },
+      where: { id: campaignId, brandId },
     });
   }
 
@@ -64,7 +78,7 @@ export class CampaignService {
 
     // 1. Mark campaign as SENDING
     await prisma.campaign.update({
-      where: { id: campaignId },
+      where: { id: campaignId, brandId },
       data: { status: CampaignStatus.SENDING },
     });
 
@@ -73,7 +87,10 @@ export class CampaignService {
       let targetCustomers: any[] = [];
       if (campaign.segmentId) {
         const memberships = await prisma.customerSegment.findMany({
-          where: { segmentId: campaign.segmentId },
+          where: {
+            segmentId: campaign.segmentId,
+            customer: { brandId },
+          },
           include: { customer: true },
         });
         targetCustomers = memberships.map((m) => m.customer);
@@ -85,7 +102,7 @@ export class CampaignService {
 
       if (targetCustomers.length === 0) {
         await prisma.campaign.update({
-          where: { id: campaignId },
+          where: { id: campaignId, brandId },
           data: { status: CampaignStatus.COMPLETED },
         });
         return;
@@ -133,14 +150,14 @@ export class CampaignService {
 
         // Periodically update campaign progress counts
         await prisma.campaign.update({
-          where: { id: campaignId },
+          where: { id: campaignId, brandId },
           data: { sentCount, failedCount },
         });
       }
 
       // 5. Complete campaign
       await prisma.campaign.update({
-        where: { id: campaignId },
+        where: { id: campaignId, brandId },
         data: { status: failedCount > 0 && sentCount === 0 ? CampaignStatus.FAILED : CampaignStatus.COMPLETED },
       });
 
@@ -148,7 +165,7 @@ export class CampaignService {
     } catch (err: any) {
       logSafeError('campaign.execution', err);
       await prisma.campaign.update({
-        where: { id: campaignId },
+        where: { id: campaignId, brandId },
         data: { status: CampaignStatus.FAILED },
       });
     }

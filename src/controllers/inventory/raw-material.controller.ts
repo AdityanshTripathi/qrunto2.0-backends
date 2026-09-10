@@ -58,7 +58,7 @@ export class RawMaterialController {
       const rawMaterials = await rawMaterialService.getRawMaterials(restaurantId, filters);
       res.status(200).json({ rawMaterials });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -84,7 +84,7 @@ export class RawMaterialController {
 
       res.status(200).json({ rawMaterial });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 

@@ -7,7 +7,8 @@ import { RecipeController } from '../controllers/inventory/recipe.controller';
 import { AuditController } from '../controllers/inventory/audit.controller';
 import { TransferController } from '../controllers/inventory/transfer.controller';
 import { ReportController } from '../controllers/inventory/report.controller';
-import { authenticate } from '../middlewares/auth.middleware';
+import { authenticate, requireRoles } from '../middlewares/auth.middleware';
+import { UserRole } from '@prisma/client';
 
 const router = Router();
 const rawMaterialController = new RawMaterialController();
@@ -20,7 +21,7 @@ const transferController = new TransferController();
 const reportController = new ReportController();
 
 // All inventory routes require authentication
-router.use(authenticate);
+router.use(authenticate, requireRoles([UserRole.RESTAURANT_OWNER, UserRole.SUPER_ADMIN]));
 
 // Raw Materials Routes
 router.get('/raw-materials', (req, res) => rawMaterialController.getRawMaterials(req, res));

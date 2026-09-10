@@ -48,7 +48,7 @@ export class MenuItemController {
       const menuItems = await menuItemService.getMenuItems(restaurantId, filters);
       res.status(200).json({ menuItems });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -79,7 +79,7 @@ export class MenuItemController {
 
       res.status(200).json({ menuItem });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 

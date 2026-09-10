@@ -60,7 +60,7 @@ export class OrderController {
       res.status(200).json(result);
     } catch (err: any) {
       if (err instanceof BusinessDateError) { res.status(400).json({ error: err.message }); return; }
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -73,7 +73,7 @@ export class OrderController {
       const stats = await orderService.getOrderStats(restaurantId);
       res.status(200).json({ stats });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -89,7 +89,7 @@ export class OrderController {
 
       res.status(200).json({ order });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 

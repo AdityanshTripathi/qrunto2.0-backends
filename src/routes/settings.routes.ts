@@ -1,14 +1,15 @@
 import { Router } from 'express';
 import { SettingsController } from '../controllers/settings.controller';
 import { PasscodeController } from '../controllers/passcode.controller';
-import { authenticate } from '../middlewares/auth.middleware';
+import { authenticate, requireRoles } from '../middlewares/auth.middleware';
+import { UserRole } from '@prisma/client';
 
 const router = Router();
 const settingsController = new SettingsController();
 const passcodeController = new PasscodeController();
 
 // Require authentication for settings endpoints
-router.use(authenticate);
+router.use(authenticate, requireRoles([UserRole.RESTAURANT_OWNER, UserRole.SUPER_ADMIN]));
 
 router.get('/', (req, res) => settingsController.getSettings(req, res));
 router.patch('/', (req, res) => settingsController.updateSettings(req, res));

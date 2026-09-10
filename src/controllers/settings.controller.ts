@@ -74,7 +74,7 @@ export class SettingsController {
         settings: restaurant.settings,
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -157,7 +157,7 @@ export class SettingsController {
         settings: updated.settings,
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 }

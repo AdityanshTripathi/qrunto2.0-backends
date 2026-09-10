@@ -32,7 +32,7 @@ export class CategoryController {
       const categories = await categoryService.getCategories(restaurantId);
       res.status(200).json({ categories });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 

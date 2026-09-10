@@ -45,7 +45,7 @@ export class SegmentController {
       const segments = await segmentService.getSegments(brandId);
       res.status(200).json({ segments });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -80,7 +80,7 @@ export class SegmentController {
 
       res.status(201).json({ message: 'Segment created and evaluated successfully', segment });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -109,7 +109,7 @@ export class SegmentController {
       await segmentService.deleteSegment(brandId, segmentId);
       res.status(200).json({ message: 'Segment deleted successfully' });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -138,7 +138,7 @@ export class SegmentController {
       const members = await segmentService.getSegmentMembers(brandId, segmentId);
       res.status(200).json({ members });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -167,7 +167,7 @@ export class SegmentController {
       const size = await segmentService.evaluateSegment(segmentId, brandId);
       res.status(200).json({ message: `Segment re-evaluated successfully. Members: ${size}`, size });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -216,7 +216,7 @@ export class SegmentController {
 
       res.status(200).json({ rfm: rfmResults, matrix });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 }

@@ -55,7 +55,7 @@ export class PasscodeController {
           : null,
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -136,7 +136,7 @@ export class PasscodeController {
 
       res.status(200).json({ message: 'Passcode updated and enabled successfully!' });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -187,7 +187,7 @@ export class PasscodeController {
         isPasscodeEnabled: updated.isPasscodeEnabled,
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -225,7 +225,7 @@ export class PasscodeController {
 
       res.status(200).json({ success: true, message: 'Passcode verified successfully!' });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -266,7 +266,7 @@ export class PasscodeController {
         request: newRequest,
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 }

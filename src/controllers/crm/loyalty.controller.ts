@@ -42,7 +42,7 @@ export class LoyaltyController {
 
       res.status(200).json({ tiers });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -127,7 +127,7 @@ export class LoyaltyController {
 
       res.status(200).json({ message: 'Loyalty tier saved successfully', tier });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -175,7 +175,7 @@ export class LoyaltyController {
 
       res.status(200).json({ message: 'Loyalty tier deleted successfully' });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -231,7 +231,7 @@ export class LoyaltyController {
 
       res.status(200).json({ pointsBalance, lifetimePoints, tierName, multiplier });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 }

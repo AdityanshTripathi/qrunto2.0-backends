@@ -107,7 +107,7 @@ export class SuperAdminController {
         })),
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -150,7 +150,7 @@ export class SuperAdminController {
         })),
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -174,7 +174,7 @@ export class SuperAdminController {
         restaurant: updated,
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -209,7 +209,7 @@ export class SuperAdminController {
         restaurantName: restaurant.name,
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -237,7 +237,7 @@ export class SuperAdminController {
 
       res.status(201).json({ message: 'Plan created successfully!', plan });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -264,7 +264,7 @@ export class SuperAdminController {
 
       res.status(200).json({ message: 'Plan updated successfully!', plan });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -304,7 +304,7 @@ export class SuperAdminController {
 
       res.status(201).json({ message: 'License Code generated successfully!', code: newCode });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -334,7 +334,7 @@ export class SuperAdminController {
         })),
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -362,7 +362,7 @@ export class SuperAdminController {
         })),
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -401,7 +401,7 @@ export class SuperAdminController {
 
       res.status(200).json({ message: `Restaurant ${restaurant.name} and its associated records have been deleted successfully!` });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -427,7 +427,7 @@ export class SuperAdminController {
 
       res.status(200).json({ message: `Subscription plan ${plan.name} deleted successfully!` });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -451,7 +451,7 @@ export class SuperAdminController {
 
       res.status(200).json({ message: `License code ${code.code} deleted successfully!` });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -478,7 +478,7 @@ export class SuperAdminController {
 
       res.status(200).json({ requests });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -522,7 +522,7 @@ export class SuperAdminController {
         request: updated,
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -586,7 +586,7 @@ export class SuperAdminController {
         subscription: updatedSub
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 }

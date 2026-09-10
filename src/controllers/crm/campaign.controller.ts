@@ -41,7 +41,7 @@ export class CampaignController {
       const campaigns = await campaignService.getCampaigns(brandId);
       res.status(200).json({ campaigns });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -84,7 +84,7 @@ export class CampaignController {
       res.status(201).json({ message: 'Campaign queued successfully', campaign });
     } catch (err: any) {
       if (err instanceof BusinessDateError) { res.status(400).json({ error: err.message }); return; }
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -113,7 +113,7 @@ export class CampaignController {
       await campaignService.deleteCampaign(brandId, campaignId);
       res.status(200).json({ message: 'Campaign deleted successfully' });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -142,7 +142,7 @@ export class CampaignController {
       const logs = await campaignService.getCampaignLogs(campaignId, brandId);
       res.status(200).json({ logs });
     } catch (err: any) {
-      res.status(505).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -197,7 +197,7 @@ export class CampaignController {
         pendingCount,
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 }

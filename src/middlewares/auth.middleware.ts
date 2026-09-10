@@ -43,7 +43,22 @@ export const resolveAccessToken = async (token: string): Promise<DecodedUser> =>
 
   if (user) {
     if (user.isActive === false) throw new Error('User account is disabled');
-    const restaurantId = user.restaurantId ?? user.restaurants[0]?.id;
+    let restaurantId = user.restaurants[0]?.id;
+
+    // Never trust a stored primary restaurant if that restaurant is inactive.
+    if (user.restaurantId) {
+      const activePrimaryRestaurant = await prisma.restaurant.findFirst({
+        where: {
+          id: user.restaurantId,
+          isActive: true,
+        },
+        select: { id: true },
+      });
+
+      if (activePrimaryRestaurant) {
+        restaurantId = activePrimaryRestaurant.id;
+      }
+    }
     return {
       id: user.id,
       email: user.email,

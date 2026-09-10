@@ -114,7 +114,7 @@ export class PublicController {
         menuItems,
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -334,7 +334,7 @@ export class PublicController {
           }
 
           const finalTotalAmount = moneyNumber(money(decimal(remainingAmount).minus(couponDiscount)));
-          
+
           let orderNotes = notes || '';
           if (pointsDiscount > 0) {
             orderNotes = `${orderNotes} [Redeemed ${redeemPoints} points, ₹${pointsDiscount} discount]`.trim();
@@ -424,7 +424,7 @@ export class PublicController {
         },
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -496,17 +496,9 @@ export class PublicController {
         },
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
-  }
-
-  // ─── POST /api/public/:slug/orders/:orderId/pay-mock ────────────────────────
-  async markOrderPaidMock(_req: Request, res: Response): Promise<void> {
-    // No provider integration exists. This legacy route must never create money records.
-    res.status(410).json({ error: 'Online payments are unavailable. Please pay at the restaurant counter.' });
-  }
-
-  async requestAssistance(req: Request, res: Response): Promise<void> {
+  }  async requestAssistance(req: Request, res: Response): Promise<void> {
     try {
       const slug = req.params['slug'] as string;
       const tableNumber = req.params['tableNumber'] as string;
@@ -574,7 +566,7 @@ export class PublicController {
         message: `${type === 'WAITER' ? 'Waiter call' : 'Bill request'} sent successfully!`,
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -622,7 +614,7 @@ export class PublicController {
 
       res.status(200).json({ pointsBalance, tierName });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -699,7 +691,7 @@ export class PublicController {
 
       res.status(200).json({ message: 'Cart session ping received' });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 }

@@ -37,7 +37,7 @@ export class RecipeController {
       const recipes = await recipeService.getRecipes(restaurantId);
       res.status(200).json({ recipes });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -63,7 +63,7 @@ export class RecipeController {
 
       res.status(200).json({ recipe });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 

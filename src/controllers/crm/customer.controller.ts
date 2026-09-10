@@ -46,6 +46,22 @@ export class CustomerController {
       // Extract filter parameters
       const search = req.query['search'] as string;
       const restaurantId = req.query['restaurantId'] as string;
+
+      if (restaurantId) {
+        const requestedRestaurant = await prisma.restaurant.findFirst({
+          where: {
+            id: restaurantId,
+            brandId,
+            isActive: true,
+          },
+          select: { id: true },
+        });
+
+        if (!requestedRestaurant) {
+          res.status(403).json({ error: 'Restaurant is outside the authorized business context' });
+          return;
+        }
+      }
       const limit = req.query['limit'] ? parseInt(req.query['limit'] as string, 10) : 20;
       const offset = req.query['offset'] ? parseInt(req.query['offset'] as string, 10) : 0;
       const sortBy = req.query['sortBy'] as string;
@@ -67,7 +83,7 @@ export class CustomerController {
 
       res.status(200).json({ customers, total });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -104,7 +120,7 @@ export class CustomerController {
 
       res.status(200).json({ customer });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -151,7 +167,7 @@ export class CustomerController {
       const updated = await customerRepository.update(customerId, brandId, updateData);
       res.status(200).json({ message: 'Customer updated successfully', customer: updated });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -184,7 +200,7 @@ export class CustomerController {
       const timeline = await timelineService.getCustomerTimeline(customerId, brandId);
       res.status(200).json({ timeline });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -243,7 +259,7 @@ export class CustomerController {
 
       res.status(201).json({ message: 'Note added successfully', note });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -270,7 +286,7 @@ export class CustomerController {
       const upcoming = await occasionService.getUpcomingOccasions(brandId);
       res.status(200).json({ upcoming });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 }

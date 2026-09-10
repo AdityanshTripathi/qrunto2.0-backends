@@ -42,7 +42,7 @@ export class CouponController {
       const coupons = await couponService.getCoupons(brandId);
       res.status(200).json({ coupons });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -86,7 +86,7 @@ export class CouponController {
       res.status(201).json({ message: 'Coupon created successfully', coupon });
     } catch (err: any) {
       if (err instanceof BusinessDateError) { res.status(400).json({ error: err.message }); return; }
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -115,7 +115,7 @@ export class CouponController {
       await couponService.deleteCoupon(brandId, couponId);
       res.status(200).json({ message: 'Coupon deleted successfully' });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -130,7 +130,29 @@ export class CouponController {
         return;
       }
 
-      const issuance = await couponService.issueCouponToCustomer(customerId, couponId);
+      const actorContext = await prisma.user.findUnique({
+        where: { id: user.id },
+        select: {
+          restaurants: {
+            where: { isActive: true },
+            select: { brandId: true },
+            take: 1,
+          },
+        },
+      });
+
+      const actorBrandId = actorContext?.restaurants?.[0]?.brandId ?? undefined;
+
+      if (user.role !== 'SUPER_ADMIN' && !actorBrandId) {
+        res.status(403).json({ error: 'No authorized business context found' });
+        return;
+      }
+
+      const issuance = await couponService.issueCouponToCustomer(
+        customerId,
+        couponId,
+        actorBrandId
+      );
       res.status(200).json({ message: 'Coupon issued successfully', issuance });
     } catch (err: any) {
       res.status(505).json({ error: err.message });
@@ -162,7 +184,7 @@ export class CouponController {
       const coupons = await couponService.getCustomerAvailableCoupons(customerId, brandId);
       res.status(200).json({ coupons });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 }

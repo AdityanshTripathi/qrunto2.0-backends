@@ -61,23 +61,48 @@ export class CouponService {
   }
 
   // Issue coupon directly to a customer (personalized coupons)
-  async issueCouponToCustomer(customerId: string, couponId: string): Promise<any> {
-    // Verify coupon exists
-    const coupon = await prisma.coupon.findUnique({
-      where: { id: couponId },
+  async issueCouponToCustomer(
+    customerId: string,
+    couponId: string,
+    actorBrandId?: string
+  ): Promise<any> {
+    const coupon = await prisma.coupon.findFirst({
+      where: {
+        id: couponId,
+        ...(actorBrandId ? { brandId: actorBrandId } : {}),
+      },
+      select: {
+        id: true,
+        brandId: true,
+      },
     });
 
     if (!coupon) {
       throw new Error('Coupon campaign not found');
     }
 
-    // Verify if already issued to this customer and not redeemed
+    const customer = await prisma.customer.findFirst({
+      where: {
+        id: customerId,
+        brandId: coupon.brandId,
+      },
+      select: { id: true },
+    });
+
+    if (!customer) {
+      throw new Error('Customer and coupon do not belong to the same business');
+    }
+
     const existing = await prisma.customerCoupon.findFirst({
-      where: { customerId, couponId, isRedeemed: false },
+      where: {
+        customerId,
+        couponId,
+        isRedeemed: false,
+      },
     });
 
     if (existing) {
-      return existing; // already issued
+      return existing;
     }
 
     return prisma.customerCoupon.create({

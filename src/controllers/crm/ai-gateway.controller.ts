@@ -55,7 +55,7 @@ export class AIGatewayController {
 
       res.status(200).json({ customers });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -107,7 +107,7 @@ export class AIGatewayController {
         aiSummary: updatedCustomer.aiSummary,
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -142,7 +142,7 @@ export class AIGatewayController {
 
       res.status(200).json({ segments });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -191,7 +191,7 @@ export class AIGatewayController {
         tiersDistribution: tiers,
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 }

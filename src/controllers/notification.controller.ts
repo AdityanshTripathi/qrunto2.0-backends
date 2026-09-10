@@ -29,7 +29,7 @@ export class NotificationController {
 
       res.status(200).json({ notifications });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -80,7 +80,7 @@ export class NotificationController {
 
       res.status(200).json({ notification: updated });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -109,7 +109,7 @@ export class NotificationController {
 
       res.status(200).json({ message: 'All notifications marked as read successfully' });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 }

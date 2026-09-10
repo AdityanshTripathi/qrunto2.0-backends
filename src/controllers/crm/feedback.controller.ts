@@ -34,7 +34,7 @@ export class FeedbackController {
 
       res.status(201).json({ message: 'Feedback submitted successfully', feedback });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -61,7 +61,7 @@ export class FeedbackController {
       const tickets = await feedbackService.getTickets(brandId);
       res.status(200).json({ tickets });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -102,7 +102,7 @@ export class FeedbackController {
 
       res.status(200).json({ message: 'Ticket updated successfully', ticket });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -129,7 +129,7 @@ export class FeedbackController {
       const stats = await feedbackService.getFeedbackStats(brandId);
       res.status(200).json({ stats });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 }

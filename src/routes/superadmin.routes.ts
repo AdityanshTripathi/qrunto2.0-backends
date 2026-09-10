@@ -49,7 +49,7 @@ router.post('/whatsapp/send-message', async (req, res) => {
     const result = await WhatsAppService.sendTextMessage(phone, message);
     res.status(200).json({ success: true, message: 'WhatsApp message delivered!', result });
   } catch (err: any) {
-    res.status(500).json({ message: err.message || 'WhatsApp message failed to send.' });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

@@ -47,7 +47,7 @@ export class WaiterController {
 
       res.status(200).json({ waiters });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -101,7 +101,7 @@ export class WaiterController {
 
       res.status(201).json({ message: 'Waiter created successfully!', waiter });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -165,7 +165,7 @@ export class WaiterController {
 
       res.status(200).json({ message: 'Waiter updated successfully!', waiter: updatedWaiter });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -194,7 +194,7 @@ export class WaiterController {
 
       res.status(200).json({ message: 'Waiter deleted successfully!' });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -233,7 +233,7 @@ export class WaiterController {
         },
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -276,7 +276,7 @@ export class WaiterController {
 
       res.status(200).json({ message: 'Waiter password reset successfully!' });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 }

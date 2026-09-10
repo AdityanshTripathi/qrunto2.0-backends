@@ -54,7 +54,7 @@ export class PurchaseController {
       const purchaseOrders = await purchaseService.getPurchaseOrders(restaurantId);
       res.status(200).json({ purchaseOrders });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -80,7 +80,7 @@ export class PurchaseController {
 
       res.status(200).json({ purchaseOrder });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 

@@ -35,7 +35,7 @@ export class SupplierController {
       const suppliers = await supplierService.getSuppliers(restaurantId);
       res.status(200).json({ suppliers });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -61,7 +61,7 @@ export class SupplierController {
 
       res.status(200).json({ supplier });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 

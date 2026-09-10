@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import { NotificationController } from '../controllers/notification.controller';
-import { authenticate } from '../middlewares/auth.middleware';
+import { authenticate, requireRoles } from '../middlewares/auth.middleware';
+import { UserRole } from '@prisma/client';
 
 const router = Router();
 const notificationController = new NotificationController();
 
-router.use(authenticate);
+router.use(authenticate, requireRoles([UserRole.RESTAURANT_OWNER, UserRole.SUPER_ADMIN, 'WAITER']));
 
 router.get('/', (req, res) => notificationController.getNotifications(req, res));
 router.patch('/read-all', (req, res) => notificationController.markAllAsRead(req, res));

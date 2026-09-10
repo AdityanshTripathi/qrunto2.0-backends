@@ -23,7 +23,7 @@ export class TableController {
       const tables = await tableService.getTables(restaurantId);
       res.status(200).json({ tables });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 

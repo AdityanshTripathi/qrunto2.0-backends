@@ -32,7 +32,7 @@ export class TransferController {
       const transfers = await transferService.getTransfers(restaurantId);
       res.status(200).json({ transfers });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
