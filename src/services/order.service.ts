@@ -210,6 +210,17 @@ export class OrderService {
         },
       });
 
+      // Persist inventory work in the SAME DB transaction as settlement.
+      // If the process dies before Redis enqueue, startup/cron can recover it.
+      await tx.auditLog.create({
+        data: {
+          action: 'INVENTORY_DEDUCTION_PENDING',
+          entityType: 'ORDER',
+          entityId: order.id,
+          metadata: { restaurantId },
+        },
+      });
+
       triggerDeduction = true;
 
       // 4. Earn loyalty points

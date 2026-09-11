@@ -76,10 +76,7 @@ export class FeedbackService {
   async getTickets(brandId: string): Promise<any[]> {
     return prisma.complaintTicket.findMany({
       where: {
-        OR: [
-          { brandId },
-          { brand: { restaurants: { some: { id: brandId } } } },
-        ],
+        brandId,
       },
       include: {
         customer: { select: { name: true, phone: true } },
@@ -100,11 +97,29 @@ export class FeedbackService {
     const ticket = await prisma.complaintTicket.findFirst({
       where: {
         id: ticketId,
+        brandId,
       },
     });
 
     if (!ticket) {
       throw new Error('Complaint ticket not found');
+    }
+
+    if (assignedUserId) {
+      const assignee = await prisma.user.findFirst({
+        where: {
+          id: assignedUserId,
+          isActive: { not: false },
+          OR: [
+            { restaurants: { some: { brandId, isActive: true } } },
+            { restaurantId: { in: (await prisma.restaurant.findMany({
+              where: { brandId, isActive: true }, select: { id: true },
+            })).map(restaurant => restaurant.id) } },
+          ],
+        },
+        select: { id: true },
+      });
+      if (!assignee) throw new Error('Assignee not found or unauthorized');
     }
 
     const updateData: { status: TicketStatus; assignedUserId?: string | null } = { status };
@@ -113,7 +128,7 @@ export class FeedbackService {
     }
 
     return prisma.complaintTicket.update({
-      where: { id: ticketId },
+      where: { id: ticketId, brandId },
       data: updateData,
     });
   }

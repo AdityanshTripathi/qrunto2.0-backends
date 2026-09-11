@@ -6,6 +6,8 @@ import { ProfilerService } from '../services/crm/profiler.service';
 import { LoyaltyService } from '../services/crm/loyalty.service';
 import { CouponService } from '../services/crm/coupon.service';
 import { ReferralService } from '../services/crm/referral.service';
+import { resolveAccessToken } from '../middlewares/auth.middleware';
+import { createHash } from 'node:crypto';
 
 const referralService = new ReferralService();
 
@@ -27,6 +29,36 @@ const PlaceOrderSchema = z.object({
   redeemPoints: z.number().int().nonnegative().optional(),
   couponCode: z.string().optional(),
 });
+
+const IdempotencyKeySchema = z.string().trim().min(1).max(128).regex(/^[\x21-\x7e]+$/);
+const checkoutOrderInclude = { orderItems: true, table: true } as const;
+
+function checkoutRequestHash(payload: z.infer<typeof PlaceOrderSchema>): string {
+  return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002';
+}
+
+function sendCheckoutResponse(res: Response, order: any, existingOrderId: string | undefined, replayed: boolean): void {
+  res.status(replayed ? 200 : 201).json({
+    message: replayed ? 'Original checkout returned.' : existingOrderId ? 'Items added successfully!' : 'Order placed successfully!',
+    order: {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      status: order.status,
+      subtotal: order.subtotal,
+      taxAmount: order.taxAmount,
+      totalAmount: order.totalAmount,
+      tableNumber: order.table?.tableNumber,
+      itemCount: order.orderItems.length,
+      createdAt: order.createdAt,
+      customerName: order.customerName,
+      customerPhone: order.customerPhone,
+    },
+  });
+}
 
 const AssistanceRequestSchema = z.object({
   type: z.enum(['WAITER', 'BILL']),
@@ -146,6 +178,57 @@ export class PublicController {
         return;
       }
 
+      // A supplied phone number is not proof of customer identity. Until a verified
+      // customer flow exists, reward use must be authorized by this restaurant's staff.
+      if ((redeemPoints ?? 0) > 0 || couponCode?.trim()) {
+        const authorization = req.headers?.authorization;
+        if (!authorization?.startsWith('Bearer ')) {
+          res.status(401).json({ error: 'Staff authorization is required to redeem rewards' });
+          return;
+        }
+        let actor;
+        try {
+          actor = await resolveAccessToken(authorization.slice(7));
+        } catch {
+          res.status(401).json({ error: 'Invalid or expired authorization token' });
+          return;
+        }
+        if (actor.restaurantId !== restaurant.id || !['RESTAURANT_OWNER', 'SUPER_ADMIN', 'WAITER'].includes(actor.role)) {
+          res.status(403).json({ error: 'Reward redemption is not authorized for this restaurant' });
+          return;
+        }
+      }
+
+      const rawIdempotencyKey = req.headers['idempotency-key'];
+      let idempotencyKey: string | undefined;
+      let requestHash: string | undefined;
+      if (rawIdempotencyKey !== undefined) {
+        const parsedKey = IdempotencyKeySchema.safeParse(rawIdempotencyKey);
+        if (!parsedKey.success) {
+          res.status(400).json({ error: 'Invalid Idempotency-Key header' });
+          return;
+        }
+        idempotencyKey = parsedKey.data;
+        requestHash = checkoutRequestHash(validationResult.data);
+
+        const priorCheckout = await prisma.checkoutIdempotency.findUnique({
+          where: { restaurantId_key: { restaurantId: restaurant.id, key: idempotencyKey } },
+          include: { order: { include: checkoutOrderInclude } },
+        });
+        if (priorCheckout) {
+          if (priorCheckout.requestHash !== requestHash) {
+            res.status(409).json({ error: 'Idempotency key was already used with a different checkout request' });
+            return;
+          }
+          if (!priorCheckout.order) {
+            res.status(409).json({ error: 'Checkout with this idempotency key is still in progress' });
+            return;
+          }
+          sendCheckoutResponse(res, priorCheckout.order, existingOrderId, true);
+          return;
+        }
+      }
+
       // 3. Find the table
       const table = await prisma.restaurantTable.findFirst({
         where: { restaurantId: restaurant.id, tableNumber, isActive: true },
@@ -250,7 +333,16 @@ export class PublicController {
       }
 
       // 6. Create or update order in a transaction
-      const order = await prisma.$transaction(async (tx) => {
+      let order: any;
+      let replayed = false;
+      try {
+        order = await prisma.$transaction(async (tx) => {
+        if (idempotencyKey && requestHash) {
+          await tx.checkoutIdempotency.create({
+            data: { restaurantId: restaurant.id, key: idempotencyKey, requestHash },
+          });
+        }
+
         if (existingOrder) {
           // Append new order items
           await tx.orderItem.createMany({
@@ -295,6 +387,13 @@ export class PublicController {
               type: 'NEW_ORDER',
             },
           });
+
+          if (idempotencyKey) {
+            await tx.checkoutIdempotency.update({
+              where: { restaurantId_key: { restaurantId: restaurant.id, key: idempotencyKey } },
+              data: { orderId: updatedOrder.id },
+            });
+          }
 
           return updatedOrder;
         } else {
@@ -390,12 +489,37 @@ export class PublicController {
             },
           });
 
+          if (idempotencyKey) {
+            await tx.checkoutIdempotency.update({
+              where: { restaurantId_key: { restaurantId: restaurant.id, key: idempotencyKey } },
+              data: { orderId: newOrder.id },
+            });
+          }
+
           return newOrder;
         }
-      });
+        });
+      } catch (checkoutError) {
+        if (!idempotencyKey || !requestHash || !isUniqueConstraintError(checkoutError)) throw checkoutError;
+        const priorCheckout = await prisma.checkoutIdempotency.findUnique({
+          where: { restaurantId_key: { restaurantId: restaurant.id, key: idempotencyKey } },
+          include: { order: { include: checkoutOrderInclude } },
+        });
+        if (!priorCheckout) throw checkoutError;
+        if (priorCheckout.requestHash !== requestHash) {
+          res.status(409).json({ error: 'Idempotency key was already used with a different checkout request' });
+          return;
+        }
+        if (!priorCheckout.order) {
+          res.status(409).json({ error: 'Checkout with this idempotency key is still in progress' });
+          return;
+        }
+        order = priorCheckout.order;
+        replayed = true;
+      }
 
       const io = req.app.get('io');
-      if (io) {
+      if (io && !replayed) {
         const eventName = existingOrderId ? 'ITEM_ADDED' : 'NEW_ORDER';
         io.to(restaurant.id).emit(eventName, {
           orderId: order.id,
@@ -407,22 +531,7 @@ export class PublicController {
         });
       }
 
-      res.status(201).json({
-        message: existingOrderId ? 'Items added successfully!' : 'Order placed successfully!',
-        order: {
-          id: order.id,
-          orderNumber: order.orderNumber,
-          status: order.status,
-          subtotal: order.subtotal,
-          taxAmount: order.taxAmount,
-          totalAmount: order.totalAmount,
-          tableNumber: order.table?.tableNumber,
-          itemCount: order.orderItems.length,
-          createdAt: order.createdAt,
-          customerName: order.customerName,
-          customerPhone: order.customerPhone,
-        },
-      });
+      sendCheckoutResponse(res, order, existingOrderId, replayed);
     } catch (err: any) {
       res.status(500).json({ error: 'Internal server error' });
     }

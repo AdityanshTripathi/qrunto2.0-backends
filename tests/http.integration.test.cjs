@@ -16,7 +16,13 @@ async function request(route, { method = 'GET', body, auth } = {}) {
     ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(5000),
   });
   assert.ok(require('../dist/lib/request-context').sanitizeRequestId(response.headers.get('x-request-id')));
-  return { status: response.status, body: await response.json(), requestId: response.headers.get('x-request-id') };
+  const text = await response.text();
+  let parsed = null;
+  if (text) {
+    try { parsed = JSON.parse(text); }
+    catch { parsed = text; }
+  }
+  return { status: response.status, body: parsed, requestId: response.headers.get('x-request-id') };
 }
 async function order(tenant = a, extra = {}) {
   return request(`/api/public/${tenant.restaurant.slug}/orders`, { method: 'POST', body: {
@@ -29,6 +35,13 @@ before(async () => {
 });
 beforeEach(() => {
   db = fixtures(); a = db.tenant(1); b = db.tenant(2);
+
+  prisma.auditLog.create = async ({ data }) => ({
+    id: 'http-test-audit',
+    ...data,
+  });
+  prisma.auditLog.deleteMany = async () => ({ count: 1 });
+
   const { loginRateLimiter, registrationRateLimiter } = require('../dist/middlewares/auth-rate-limit.middleware');
   loginRateLimiter.resetKey('127.0.0.1'); registrationRateLimiter.resetKey('127.0.0.1');
 });
@@ -195,10 +208,10 @@ test('Inventory/payments: HTTP settlement enqueues correct IDs once; replay crea
   assert.equal((await request(`/api/orders/${id}/pay`, { method: 'POST', body: {} })).status, 401);
 });
 
-test('Payments: legacy public simulator is blocked without writes', async () => {
+test('Payments: legacy public simulator is unavailable without writes', async () => {
   const id = (await order()).body.order.id;
   for (const slug of [a.restaurant.slug, b.restaurant.slug]) {
-    assert.equal((await request(`/api/public/${slug}/orders/${id}/pay-mock`, { method: 'POST', body: {} })).status, 410);
+    assert.equal((await request(`/api/public/${slug}/orders/${id}/pay-mock`, { method: 'POST', body: {} })).status, 404);
   }
   assert.equal(db.data.payments.length, 0);
   assert.equal(db.data.transactions.length, 0);
@@ -229,5 +242,76 @@ test('Tracing: health/readiness and protected CRM cron retain the HTTP ID in log
 });
 
 test.todo('UNAVAILABLE Payments: real provider verification and signed webhooks require an integration');
-test.todo('DEFERRED Payments: atomic payment-to-queue handoff across process crashes');
+test('Payments: committed settlement survives enqueue failure and recovery requeues durable inventory work', async t => {
+  const { LuaStore } = require('./support/lua-store.cjs');
+
+  const auditRows = [];
+  prisma.auditLog.create = async ({ data }) => {
+    const row = { id: `audit-${auditRows.length + 1}`, createdAt: new Date(), ...data };
+    auditRows.push(row);
+    return row;
+  };
+  prisma.auditLog.findMany = async ({ where }) =>
+    auditRows.filter(row =>
+      row.action === where.action &&
+      row.entityType === where.entityType
+    );
+  prisma.auditLog.findFirst = async ({ where }) =>
+    auditRows.find(row =>
+      row.action === where.action &&
+      row.entityType === where.entityType &&
+      row.entityId === where.entityId
+    ) || null;
+
+  const id = (await order()).body.order.id;
+
+  t.mock.method(
+    DeductionQueueService,
+    'enqueueDeduction',
+    async () => { throw new Error('simulated enqueue crash window'); }
+  );
+
+  const failed = await request(`/api/orders/${id}/pay`, {
+    method: 'POST',
+    auth: token(a.user),
+    body: { paymentMethod: 'CASH' },
+  });
+
+  assert.notEqual(failed.status, 200);
+  assert.equal(db.data.payments.length, 1);
+  assert.equal(db.data.transactions.length, 1);
+
+  const pending = auditRows.find(row =>
+    row.action === 'INVENTORY_DEDUCTION_PENDING' &&
+    row.entityId === id
+  );
+
+  assert.ok(pending, 'Settlement must commit a durable pending inventory marker');
+  assert.equal(pending.metadata.restaurantId, a.restaurant.id);
+
+  const handled = [];
+  const store = new LuaStore();
+  const recoveryQueue = new DurableDeductionQueue(
+    async () => store,
+    async job => handled.push([job.orderId, job.restaurantId]),
+    { maxAttempts: 3, baseDelayMs: 1, lockSeconds: 5, batchSize: 25, autoStart: false }
+  );
+
+  const originalDurable = DeductionQueueService.durable;
+  const previousRedisUrl = process.env.REDIS_URL;
+
+  DeductionQueueService.durable = recoveryQueue;
+  process.env.REDIS_URL = 'redis://integration-recovery-test';
+
+  try {
+    await DeductionQueueService.processPending();
+  } finally {
+    DeductionQueueService.durable = originalDurable;
+
+    if (previousRedisUrl === undefined) delete process.env.REDIS_URL;
+    else process.env.REDIS_URL = previousRedisUrl;
+  }
+
+  assert.deepEqual(handled, [[id, a.restaurant.id]]);
+});
 test.todo('UNVERIFIED Database: real PostgreSQL constraints, RLS and transaction isolation');

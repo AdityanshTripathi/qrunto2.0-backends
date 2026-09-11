@@ -2,7 +2,6 @@ import { restaurantTimezone, dateInput } from '../../lib/timezone';
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { PurchaseService } from '../../services/inventory/purchase.service';
-import { PurchaseOrderStatus } from '@prisma/client';
 
 const purchaseService = new PurchaseService();
 
@@ -18,7 +17,7 @@ const CreatePurchaseOrderItemSchema = z.object({
 const CreatePurchaseOrderSchema = z.object({
   supplierId: z.string().uuid('Invalid supplier ID'),
   poNumber: z.string().min(1, 'PO number is required'),
-  status: z.nativeEnum(PurchaseOrderStatus).optional(),
+  status: z.enum(['DRAFT', 'PENDING', 'CANCELLED']).optional(),
   orderDate: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).optional(),
   expectedDate: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).optional().nullable(),
   subtotal: z.number().nonnegative(),

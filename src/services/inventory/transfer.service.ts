@@ -1,3 +1,4 @@
+import { serializableTransaction } from '../../lib/serializable-transaction';
 import { prisma } from '../../lib/prisma';
 import { decimal } from '../../lib/money';
 import { StockTransfer, TransferStatus, LedgerActionType, RawMaterialStatus } from '@prisma/client';
@@ -48,7 +49,7 @@ export class TransferService {
       }>;
     }
   ): Promise<StockTransfer> {
-    return prisma.$transaction(async (tx) => {
+    return serializableTransaction(async (tx) => {
       // 1. Fetch Source Branch to verify brandId
       const sourceBranch = await tx.restaurant.findUnique({
         where: { id: sourceBranchId },
@@ -134,7 +135,7 @@ export class TransferService {
   }
 
   async approveTransfer(id: string, destBranchId: string, userId: string): Promise<StockTransfer> {
-    return prisma.$transaction(async (tx) => {
+    return serializableTransaction(async (tx) => {
       // 1. Fetch Transfer
       const transfer = await tx.stockTransfer.findFirst({
         where: { id, destBranchId },
@@ -228,7 +229,7 @@ export class TransferService {
   }
 
   async rejectTransfer(id: string, destBranchId: string, userId: string): Promise<StockTransfer> {
-    return prisma.$transaction(async (tx) => {
+    return serializableTransaction(async (tx) => {
       // 1. Fetch Transfer
       const transfer = await tx.stockTransfer.findFirst({
         where: { id, destBranchId },

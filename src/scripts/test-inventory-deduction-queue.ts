@@ -94,6 +94,7 @@ async function orderToQueueIntegration(): Promise<void> {
   const tx = {
     payment: { findMany: async () => [], create: async () => ({ id: 'payment-1' }) },
     transaction: { create: async () => ({}) },
+    auditLog: { create: async () => ({}) },
     restaurant: { findUnique: async () => null },
     order: {
       findFirst: async () => ({ id: 'order-1', status: reads++ ? OrderStatus.PAID : OrderStatus.READY, customerId: null, totalAmount: 100 }),
@@ -134,7 +135,7 @@ async function exactlyOnceDeduction(): Promise<void> {
       findFirst: async () => ledgerCreated ? { id: 'ledger-1' } : null,
       create: async () => { ledgerCreated = true; ledgerWrites++; },
     },
-    auditLog: { create: async () => undefined },
+    auditLog: { create: async () => undefined, deleteMany: async () => ({ count: 1 }) },
   };
   mutablePrisma.$transaction = async callback => callback(tx);
   const service = DeductionQueueService as unknown as {

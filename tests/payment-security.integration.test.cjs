@@ -24,17 +24,26 @@ beforeEach(() => {
   db=fixtures(); a=db.tenant(1); b=db.tenant(2);
   order={id:db.id(90), restaurantId:a.restaurant.id, tableId:a.table.id, status:'SERVED', totalAmount:220.25, orderItems:[], customerId:null};
   db.data.orders.push(order);
+
+  // Settlement now writes a durable inventory-recovery audit marker.
+  prisma.auditLog.create = async ({ data }) => ({
+    id: 'test-audit-log',
+    ...data,
+  });
 });
 after(() => assert.deepEqual(violations, []));
 
 test('Payment simulators: production rejects forged success, references and amounts without DB writes', async () => {
   const env=process.env.NODE_ENV; process.env.NODE_ENV='production';
   try {
+    const publicController = new PublicController();
+    assert.equal(typeof publicController.markOrderPaidMock, 'undefined');
+
     for (let i=0;i<2;i++) {
       const req={params:{slug:a.restaurant.slug,orderId:order.id},user:a.user,body:{planId:db.id(9),amount:0,status:'SUCCESS',razorpayPaymentId:'forged',signature:'forged'}};
-      const pub=response(); await new PublicController().markOrderPaidMock(req,pub); assert.equal(pub.code,410);
       const sub=response(); await new SubscriptionController().purchaseSubscription(req,sub); assert.equal(sub.code,503);
     }
+
     assert.equal(db.data.payments.length,0); assert.equal(db.data.transactions.length,0); assert.equal(order.status,'SERVED');
   } finally { process.env.NODE_ENV=env; }
 });

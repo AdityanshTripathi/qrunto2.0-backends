@@ -22,6 +22,7 @@ function fixtures() {
   prisma.user.create = async ({ data: values }) => create(data.users, { isActive: true, restaurantId: null, ...values });
   prisma.waiter.findUnique = async () => null;
   prisma.restaurant.findUnique = async ({ where }) => copy(data.restaurants.find(row => match(row, where)));
+  prisma.restaurant.findFirst = async ({ where }) => copy(data.restaurants.find(row => match(row, where)));
   prisma.restaurant.create = async ({ data: values }) => create(data.restaurants, { settings: { taxPercentage: 0 }, ...values });
   prisma.restaurantSetting.create = async ({ data: values }) => copy(values);
   prisma.restaurantTable.findFirst = async ({ where }) => copy(data.tables.find(row => match(row, where)));

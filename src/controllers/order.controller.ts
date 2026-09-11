@@ -8,7 +8,7 @@ import { OrderStatus } from '@prisma/client';
 const orderService = new OrderService();
 
 const UpdateStatusSchema = z.object({
-  status: z.enum(['NEW', 'PREPARING', 'READY', 'SERVED', 'CANCELLED'], {
+  status: z.enum(['NEW', 'ACCEPTED', 'PREPARING', 'READY', 'SERVED', 'CANCELLED'], {
     error: 'Invalid status value',
   }),
 });

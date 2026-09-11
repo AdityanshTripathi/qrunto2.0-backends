@@ -39,6 +39,7 @@ router.get('/', async (req, res) => {
     return;
   }
   try {
+    await DeductionQueueService.processPending();
     const status = await CRMScheduler.runCycle();
     res.status(200).json({ status });
   } catch (error) {

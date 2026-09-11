@@ -30,7 +30,7 @@ export class AnalyticsController {
         tableOrdersGrouped,
       ] = await Promise.all([
         prisma.order.aggregate({
-          where: { restaurantId, status: 'SERVED', createdAt: todayRange },
+          where: { restaurantId, status: { in: ['SERVED', 'PAID'] }, createdAt: todayRange },
           _sum: { totalAmount: true },
           _count: { id: true },
           _avg: { totalAmount: true },
@@ -41,7 +41,7 @@ export class AnalyticsController {
         prisma.order.findMany({
           where: {
             restaurantId,
-            status: 'SERVED',
+            status: { in: ['SERVED', 'PAID'] },
             createdAt: { gte: sevenDaysAgo },
           },
           select: { totalAmount: true, createdAt: true },
@@ -52,7 +52,7 @@ export class AnalyticsController {
           where: {
             order: {
               restaurantId,
-              status: 'SERVED',
+              status: { in: ['SERVED', 'PAID'] },
             },
           },
           _sum: {
@@ -70,7 +70,7 @@ export class AnalyticsController {
           by: ['tableId'],
           where: {
             restaurantId,
-            status: 'SERVED',
+            status: { in: ['SERVED', 'PAID'] },
           },
           _sum: {
             totalAmount: true,
@@ -745,7 +745,7 @@ export class AnalyticsController {
               select: {
                 quantity: true,
                 rawMaterial: {
-                  select: { averageCost: true, purchasePrice: true }
+                  select: { averageCost: true, purchasePrice: true, unit: true }
                 }
               }
             }
@@ -772,7 +772,19 @@ export class AnalyticsController {
         let unitCost = 0;
         if (recipe && recipe.ingredients.length > 0) {
           recipe.ingredients.forEach(ing => {
-            unitCost = moneyNumber(decimal(unitCost).plus(decimal(ing.quantity).times(ing.rawMaterial.averageCost ?? ing.rawMaterial.purchasePrice ?? 0)));
+            const materialUnit = (ing.rawMaterial.unit || '').toUpperCase().trim();
+            const conversionFactor =
+              materialUnit === 'KG' || materialUnit === 'LTR' || materialUnit === 'L'
+                ? 1000
+                : 1;
+            const normalizedQuantity = decimal(ing.quantity).dividedBy(conversionFactor);
+            unitCost = moneyNumber(
+              decimal(unitCost).plus(
+                normalizedQuantity.times(
+                  ing.rawMaterial.averageCost ?? ing.rawMaterial.purchasePrice ?? 0
+                )
+              )
+            );
           });
         }
 

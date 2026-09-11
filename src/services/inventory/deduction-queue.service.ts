@@ -35,7 +35,41 @@ export class DeductionQueueService {
   }
 
   static async processPending(): Promise<void> {
-    if (redisUrl()) await this.durable.drain();
+    if (!redisUrl()) return;
+
+    const pending = await prisma.auditLog.findMany({
+      where: {
+        action: 'INVENTORY_DEDUCTION_PENDING',
+        entityType: 'ORDER',
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 100,
+    });
+
+    for (const entry of pending) {
+      const completed = await prisma.auditLog.findFirst({
+        where: {
+          action: 'INVENTORY_DEDUCTION_SUCCESS',
+          entityType: 'ORDER',
+          entityId: entry.entityId,
+        },
+        select: { id: true },
+      });
+
+      if (completed) continue;
+
+      const metadata = entry.metadata as Record<string, unknown> | null;
+      const restaurantId =
+        typeof metadata?.['restaurantId'] === 'string'
+          ? metadata['restaurantId']
+          : undefined;
+
+      if (!entry.entityId || !restaurantId) continue;
+
+      await this.durable.enqueue(entry.entityId, restaurantId);
+    }
+
+    await this.durable.drain();
   }
 
   static async getStatus(): Promise<{
@@ -168,6 +202,14 @@ export class DeductionQueueService {
           entityType: 'ORDER',
           entityId: orderId,
           metadata: { restaurantId, requestId: getRequestId() },
+        },
+      });
+
+      await tx.auditLog.deleteMany({
+        where: {
+          action: 'INVENTORY_DEDUCTION_PENDING',
+          entityType: 'ORDER',
+          entityId: orderId,
         },
       });
     }, { isolationLevel: 'Serializable' });

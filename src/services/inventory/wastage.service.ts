@@ -1,3 +1,4 @@
+import { serializableTransaction } from '../../lib/serializable-transaction';
 import { prisma } from '../../lib/prisma';
 import { lineTotal } from '../../lib/money';
 import { WastageRecord, WastageReason, LedgerActionType } from '@prisma/client';
@@ -35,7 +36,7 @@ export class WastageService {
       wasteDate?: Date;
     }
   ): Promise<WastageRecord> {
-    return prisma.$transaction(async (tx) => {
+    return serializableTransaction(async (tx) => {
       // 1. Fetch raw material to get current stock and average cost
       const material = await tx.rawMaterial.findFirst({
         where: { id: data.rawMaterialId, restaurantId },

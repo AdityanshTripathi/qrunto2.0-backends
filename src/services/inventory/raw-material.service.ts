@@ -48,6 +48,9 @@ export class RawMaterialService {
     restaurantId: string,
     data: Partial<Omit<RawMaterial, 'id' | 'restaurantId' | 'createdAt' | 'updatedAt'>>
   ): Promise<RawMaterial> {
+    if (data.currentStock !== undefined) {
+      throw new Error('Use the dedicated stock adjustment endpoint to change current stock');
+    }
     if (data.supplierId) {
       const supplier = await supplierRepository.findById(data.supplierId, restaurantId);
       if (!supplier) {

@@ -23,5 +23,6 @@ assert.throws(() => buildAllowedOrigins({ NODE_ENV: 'production', FRONTEND_URL: 
 const options = createCorsOptions({ NODE_ENV: 'production', FRONTEND_URL: trustedOrigin });
 assert.equal(options.credentials, false);
 assert.ok(options.allowedHeaders?.includes('Authorization'));
+assert.ok(options.allowedHeaders?.includes('Idempotency-Key'));
 
 console.log('REST and Socket.IO CORS origin policy verified.');

@@ -71,6 +71,7 @@ model Restaurant {
   menuItems             MenuItem[]
   menuViewLogs          MenuViewLog[]
   cartSessions          CartSession[]
+  checkoutIdempotencies CheckoutIdempotency[]
   notifications         Notification[]
   orders                Order[]
   passcodeResetRequests PasscodeResetRequest[]
@@ -250,6 +251,7 @@ model Order {
   servedAt             DateTime?              @map("served_at")
   assignedWaiterId     String?                @map("assigned_waiter_id")
   assignedWaiter       Waiter?                @relation(fields: [assignedWaiterId], references: [id])
+  checkoutIdempotencies CheckoutIdempotency[]
   couponsRedeemed      CustomerCoupon[]
   feedback             Feedback?
   invoice              Invoice?
@@ -271,6 +273,21 @@ model Order {
   @@index([source])
   @@index([type])
   @@map("orders")
+}
+
+model CheckoutIdempotency {
+  id           String     @id @default(uuid())
+  restaurantId String     @map("restaurant_id")
+  key          String
+  requestHash  String     @map("request_hash")
+  orderId      String?    @map("order_id")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  order        Order?     @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@unique([restaurantId, key])
+  @@index([orderId])
+  @@map("checkout_idempotencies")
 }
 
 model OrderItem {
@@ -1172,4 +1189,3 @@ model CartSession {
   @@index([restaurantId, createdAt])
   @@map("cart_sessions")
 }
-

@@ -1,3 +1,4 @@
+import { serializableTransaction } from '../../lib/serializable-transaction';
 import { prisma } from '../../lib/prisma';
 import { RawMaterial, RawMaterialStatus, LedgerActionType } from '@prisma/client';
 
@@ -85,7 +86,7 @@ export class RawMaterialRepository {
     }
   ): Promise<RawMaterial> {
     // Wrap in transaction to also write an OPENING_STOCK ledger entry if currentStock > 0 or openingStock > 0
-    return prisma.$transaction(async (tx) => {
+    return serializableTransaction(async (tx) => {
       const material = await tx.rawMaterial.create({
         data: {
           restaurantId,
@@ -151,7 +152,7 @@ export class RawMaterialRepository {
     actionType: LedgerActionType,
     reason?: string
   ): Promise<RawMaterial> {
-    return prisma.$transaction(async (tx) => {
+    return serializableTransaction(async (tx) => {
       const material = await tx.rawMaterial.findFirst({
         where: { id, restaurantId },
       });

@@ -1,8 +1,15 @@
+import { serializableTransaction } from '../../lib/serializable-transaction';
 import { prisma } from '../../lib/prisma';
 import { decimal } from '../../lib/money';
-import { PurchaseOrder, PurchaseOrderStatus, LedgerActionType } from '@prisma/client';
+import { PurchaseOrder, PurchaseOrderStatus, LedgerActionType, Prisma } from '@prisma/client';
 
 export class PurchaseRepository {
+  private async validateMaterials(tx: Prisma.TransactionClient, restaurantId: string, items: { rawMaterialId: string }[]): Promise<void> {
+    const ids = [...new Set(items.map(item => item.rawMaterialId))];
+    const count = await tx.rawMaterial.count({ where: { id: { in: ids }, restaurantId } });
+    if (count !== ids.length) throw new Error('One or more raw materials not found or unauthorized');
+  }
+
   async findMany(restaurantId: string): Promise<PurchaseOrder[]> {
     return prisma.purchaseOrder.findMany({
       where: { restaurantId },
@@ -23,6 +30,7 @@ export class PurchaseRepository {
       include: {
         supplier: true,
         items: {
+          where: { rawMaterial: { restaurantId } },
           include: {
             rawMaterial: true,
           },
@@ -53,8 +61,10 @@ export class PurchaseRepository {
       }>;
     }
   ): Promise<PurchaseOrder> {
-    return prisma.$transaction(async (tx) => {
+    return serializableTransaction(async (tx) => {
       const { items, ...poData } = data;
+
+      await this.validateMaterials(tx, restaurantId, items);
 
       const purchaseOrder = await tx.purchaseOrder.create({
         data: {
@@ -110,7 +120,7 @@ export class PurchaseRepository {
       }>;
     }
   ): Promise<PurchaseOrder> {
-    return prisma.$transaction(async (tx) => {
+    return serializableTransaction(async (tx) => {
       const { items, ...poData } = data;
 
       // Check if PO exists and is not already RECEIVED
@@ -128,6 +138,7 @@ export class PurchaseRepository {
 
       // If items are provided, delete old ones and recreate
       if (items) {
+        await this.validateMaterials(tx, restaurantId, items);
         await tx.purchaseOrderItem.deleteMany({
           where: { poId: id },
         });
@@ -185,7 +196,7 @@ export class PurchaseRepository {
       notes?: string;
     }
   ): Promise<PurchaseOrder> {
-    return prisma.$transaction(async (tx) => {
+    return serializableTransaction(async (tx) => {
       // 1. Fetch the Purchase Order with items
       const po = await tx.purchaseOrder.findFirst({
         where: { id, restaurantId },

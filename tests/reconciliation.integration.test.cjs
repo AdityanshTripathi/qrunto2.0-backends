@@ -98,5 +98,6 @@ test('Inventory deduction uses serializable transaction to protect concurrent st
   prisma.$transaction=async(fn,options)=>{assert.equal(options.isolationLevel,'Serializable');return fn(prisma);};
   prisma.order.findFirst=async q=>{assert.equal(q.where.restaurantId,a.restaurant.id);return {orderItems:[]};};
   prisma.auditLog.create=async()=>{};
+  prisma.auditLog.deleteMany=async()=>({count:1});
   await DeductionQueueService.deductStockForOrder('order',a.restaurant.id);
 });
