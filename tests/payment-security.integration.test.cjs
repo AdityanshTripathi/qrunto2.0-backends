@@ -22,7 +22,7 @@ let db, a, b, order;
 const response = () => ({ code: 200, status(n) { this.code=n; return this; }, json(body) { this.body=body; return this; } });
 beforeEach(() => {
   db=fixtures(); a=db.tenant(1); b=db.tenant(2);
-  order={id:db.id(90), restaurantId:a.restaurant.id, tableId:a.table.id, status:'SERVED', totalAmount:220.25, orderItems:[], customerId:null};
+  order={id:db.id(90), restaurantId:a.restaurant.id, tableId:a.table.id, orderNumber:'ORD-TEST-90', status:'SERVED', subtotal:200, taxAmount:20.25, totalAmount:220.25, orderItems:[], customerId:null};
   db.data.orders.push(order);
 
   // Settlement now writes a durable inventory-recovery audit marker.
@@ -58,6 +58,67 @@ test('Cash settlement: authenticated server amount, tenant ownership and sequent
   assert.equal(db.data.payments.length,1);assert.equal(db.data.transactions.length,1);
   assert.equal(db.data.payments[0].amount,220.25);assert.equal(db.data.payments[0].restaurantId,a.restaurant.id);
   assert.equal(db.data.transactions[0].paymentId,db.data.payments[0].id);
+  assert.equal(db.data.invoices.length,1);
+
+  const invoice=db.data.invoices[0];
+  assert.equal(invoice.invoiceNumber,'INV-TEST-90');
+  assert.equal(invoice.subtotal,200);
+  assert.equal(invoice.gst,20.25);
+  assert.equal(invoice.grandTotal,220.25);
+  assert.equal(invoice.discount,0);
+  assert.equal(invoice.paymentMethod,'CASH');
+  assert.equal(invoice.paymentStatus,'SUCCESS');
+  assert.equal(db.data.orders.find(row=>row.id===order.id).invoiceNumber,'INV-TEST-90');
+});
+
+test('Paid cash replay self-heals a missing invoice without charging twice', async t => {
+  t.mock.method(DeductionQueueService,'enqueueDeduction',async()=>{});
+
+  order.status='PAID';
+  db.data.payments.push({
+    id:db.id(91),
+    orderId:order.id,
+    restaurantId:a.restaurant.id,
+    status:'SUCCESS',
+    amount:220.25,
+    refundedAmount:0,
+    paymentMethod:'CASH',
+    razorpayOrderId:null,
+    razorpayPaymentId:null
+  });
+
+  assert.equal(db.data.invoices.length,0);
+
+  await service.payOrder(order.id,a.restaurant.id,'CASH');
+  await service.payOrder(order.id,a.restaurant.id,'CASH');
+
+  assert.equal(db.data.payments.length,1);
+  assert.equal(db.data.invoices.length,1);
+  assert.equal(db.data.invoices[0].invoiceNumber,'INV-TEST-90');
+  assert.equal(db.data.orders.find(row=>row.id===order.id).invoiceNumber,'INV-TEST-90');
+});
+
+test('Invoice retrieval requires authentication and is tenant scoped', async t => {
+  t.mock.method(DeductionQueueService,'enqueueDeduction',async()=>{});
+
+  await service.payOrder(order.id,a.restaurant.id,'CASH');
+
+  const controller=new OrderController();
+
+  const unauth=response();
+  await controller.getInvoice({params:{id:order.id},user:undefined},unauth);
+  assert.equal(unauth.code,401);
+
+  const foreign=response();
+  await controller.getInvoice({params:{id:order.id},user:b.user},foreign);
+  assert.equal(foreign.code,404);
+
+  const own=response();
+  await controller.getInvoice({params:{id:order.id},user:a.user},own);
+  assert.equal(own.code,200);
+  assert.equal(own.body.invoice.restaurantId,a.restaurant.id);
+  assert.equal(own.body.invoice.orderId,order.id);
+  assert.equal(own.body.invoice.invoiceNumber,'INV-TEST-90');
 });
 
 test('Electronic confirmation and direct PAID transition are rejected', async () => {
@@ -78,7 +139,7 @@ test('Concurrent cash requests contend on tenant/status/amount claim; effects ha
   const results=await Promise.all([service.payOrder(order.id,a.restaurant.id,'CASH'),service.payOrder(order.id,a.restaurant.id,'CASH')]);
   assert.ok(results.every(row=>row.status==='PAID'));
   assert.equal(db.data.payments.length,1);assert.equal(db.data.transactions.length,1);assert.equal(earned,1);
-  const claims=db.queries.filter(q=>q.operation==='updateMany');
+  const claims=db.queries.filter(q=>q.operation==='updateMany' && q.where.status==='SERVED' && q.where.totalAmount===220.25);
   assert.equal(claims.length,2);
   assert.ok(claims.every(q=>q.where.restaurantId===a.restaurant.id && q.where.status==='SERVED' && q.where.totalAmount===220.25));
 });

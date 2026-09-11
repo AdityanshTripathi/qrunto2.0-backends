@@ -5,7 +5,7 @@ import {
   OrderWithDetails,
   PaginatedOrders,
 } from '../repositories/order.repository';
-import { OrderStatus } from '@prisma/client';
+import { OrderStatus, Prisma } from '@prisma/client';
 import { decimal, money, moneyNumber } from '../lib/money';
 import { prisma } from '../lib/prisma';
 import { LoyaltyService } from './crm/loyalty.service';
@@ -13,6 +13,66 @@ import { ProfilerService } from './crm/profiler.service';
 import { DeductionQueueService } from './inventory/deduction-queue.service';
 
 const orderRepository = new OrderRepository();
+async function ensureCashInvoice(
+  tx: Prisma.TransactionClient,
+  order: {
+    id: string;
+    restaurantId: string;
+    orderNumber: string;
+    subtotal: Prisma.Decimal;
+    taxAmount: Prisma.Decimal;
+    totalAmount: Prisma.Decimal;
+  },
+): Promise<void> {
+  const settings = await tx.restaurantSetting.findUnique({
+    where: { restaurantId: order.restaurantId },
+    select: { invoiceSeries: true },
+  });
+
+  const series = settings?.invoiceSeries?.trim() || 'INV';
+  const orderSuffix = order.orderNumber.replace(/^ORD-/, '');
+  const invoiceNumber = `${series}-${orderSuffix}`;
+
+  const discountValue = decimal(order.subtotal)
+    .plus(order.taxAmount)
+    .minus(order.totalAmount);
+
+  const discount = moneyNumber(
+    money(discountValue.gt(0) ? discountValue : decimal(0))
+  );
+
+  await tx.invoice.upsert({
+    where: { orderId: order.id },
+    update: {
+      invoiceNumber,
+      subtotal: order.subtotal,
+      discount,
+      gst: order.taxAmount,
+      grandTotal: order.totalAmount,
+      paymentMethod: 'CASH',
+      paymentStatus: 'SUCCESS',
+    },
+    create: {
+      restaurantId: order.restaurantId,
+      orderId: order.id,
+      invoiceNumber,
+      subtotal: order.subtotal,
+      discount,
+      gst: order.taxAmount,
+      grandTotal: order.totalAmount,
+      paymentMethod: 'CASH',
+      paymentStatus: 'SUCCESS',
+    },
+  });
+
+  await tx.order.updateMany({
+    where: {
+      id: order.id,
+      restaurantId: order.restaurantId,
+    },
+    data: { invoiceNumber },
+  });
+}
 
 // Valid status transitions
 const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
@@ -38,6 +98,15 @@ export class OrderService {
     return orderRepository.findById(id, restaurantId);
   }
 
+  async getInvoice(id: string, restaurantId: string) {
+    return prisma.invoice.findFirst({
+      where: {
+        orderId: id,
+        restaurantId,
+        order: { restaurantId },
+      },
+    });
+  }
   async getOrderStats(restaurantId: string): Promise<Record<string, number>> {
     return orderRepository.countByStatus(restaurantId);
   }
@@ -74,7 +143,12 @@ export class OrderService {
       // Re-fetch order with details
       const updated = await tx.order.findFirst({
         where: { id, restaurantId },
-        include: { table: true, orderItems: true },
+        include: {
+          table: true,
+          orderItems: true,
+          payments: true,
+          invoice: true,
+        },
       });
       if (!updated) throw new Error('Order not found after update');
       return updated as unknown as OrderWithDetails;
@@ -138,7 +212,12 @@ export class OrderService {
       // Re-fetch order
       const updated = await tx.order.findFirst({
         where: { id, restaurantId },
-        include: { table: true, orderItems: true },
+        include: {
+          table: true,
+          orderItems: true,
+          payments: true,
+          invoice: true,
+        },
       });
       if (!updated) throw new Error('Order not found after update');
       return updated as unknown as OrderWithDetails;
@@ -170,8 +249,23 @@ export class OrderService {
       }
       if (order.status === OrderStatus.PAID) {
         if (!existing || !decimal(existing.amount).eq(order.totalAmount)) throw new Error('Payment reconciliation required');
+
+        await ensureCashInvoice(tx, order);
+
         triggerDeduction = true; // Retry the existing idempotent queue after a prior enqueue failure.
-        return order as unknown as OrderWithDetails;
+
+        const paidOrder = await tx.order.findFirst({
+          where: { id, restaurantId },
+          include: {
+            table: true,
+            orderItems: true,
+            payments: true,
+            invoice: true,
+          },
+        });
+
+        if (!paidOrder) throw new Error('Order not found after invoice recovery');
+        return paidOrder as unknown as OrderWithDetails;
       }
 
       if (existing) throw new Error('Payment reconciliation required');
@@ -210,6 +304,8 @@ export class OrderService {
         },
       });
 
+      // Invoice is part of the same settlement transaction and is idempotent by orderId.
+      await ensureCashInvoice(tx, order);
       // Persist inventory work in the SAME DB transaction as settlement.
       // If the process dies before Redis enqueue, startup/cron can recover it.
       await tx.auditLog.create({
@@ -237,7 +333,12 @@ export class OrderService {
       // Re-fetch order with details
       const updated = await tx.order.findFirst({
         where: { id, restaurantId },
-        include: { table: true, orderItems: true },
+        include: {
+          table: true,
+          orderItems: true,
+          payments: true,
+          invoice: true,
+        },
       });
       if (!updated) throw new Error('Order not found after update');
       return updated as unknown as OrderWithDetails;

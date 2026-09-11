@@ -93,6 +93,32 @@ export class OrderController {
     }
   }
 
+  async getInvoice(req: Request, res: Response): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({ error: 'Authentication required' });
+        return;
+      }
+
+      const restaurantId = req.user.restaurantId;
+      if (!restaurantId) {
+        res.status(400).json({ error: 'No restaurant linked to this session' });
+        return;
+      }
+
+      const id = req.params['id'] as string;
+      const invoice = await orderService.getInvoice(id, restaurantId);
+
+      if (!invoice) {
+        res.status(404).json({ error: 'Invoice not found' });
+        return;
+      }
+
+      res.status(200).json({ invoice });
+    } catch {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
   async updateOrderStatus(req: Request, res: Response): Promise<void> {
     try {
       if (!req.user) { res.status(401).json({ error: 'Authentication required' }); return; }

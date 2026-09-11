@@ -96,8 +96,30 @@ async function orderToQueueIntegration(): Promise<void> {
     transaction: { create: async () => ({}) },
     auditLog: { create: async () => ({}) },
     restaurant: { findUnique: async () => null },
+    restaurantSetting: {
+      findUnique: async () => ({ invoiceSeries: 'INV' }),
+    },
+    invoice: {
+      upsert: async () => ({
+        id: 'invoice-1',
+        orderId: 'order-1',
+        invoiceNumber: 'INV-TEST-1',
+      }),
+    },
     order: {
-      findFirst: async () => ({ id: 'order-1', status: reads++ ? OrderStatus.PAID : OrderStatus.READY, customerId: null, totalAmount: 100 }),
+      findFirst: async () => ({
+        id: 'order-1',
+        restaurantId: 'restaurant-1',
+        orderNumber: 'ORD-TEST-1',
+        status: reads++ ? OrderStatus.PAID : OrderStatus.READY,
+        customerId: null,
+        subtotal: 90,
+        taxAmount: 10,
+        totalAmount: 100,
+        orderItems: [],
+        payments: [],
+        invoice: null,
+      }),
       updateMany: async () => ({ count: 1 }),
     },
   };

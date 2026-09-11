@@ -5,7 +5,7 @@ const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 // Intentionally small Prisma boundary double, not a database/RLS emulator.
 function fixtures() {
   let sequence = 100;
-  const data = { users: [], restaurants: [], tables: [], menu: [], orders: [], payments: [], transactions: [] };
+  const data = { users: [], restaurants: [], tables: [], menu: [], orders: [], payments: [], transactions: [], invoices: [] };
   const queries = [];
   const match = (row, where = {}) => Object.entries(where).every(([key, value]) => {
     if (value && typeof value === 'object' && !(value instanceof Date)) {
@@ -16,7 +16,7 @@ function fixtures() {
   });
   const copy = row => row ? structuredClone(row) : null;
   const fullUser = row => row ? { ...copy(row), restaurants: data.restaurants.filter(r => r.ownerId === row.id && r.isActive).map(copy) } : null;
-  const fullOrder = row => row ? { ...copy(row), table: copy(data.tables.find(t => t.id === row.tableId)), payments: data.payments.filter(p => p.orderId === row.id).map(copy) } : null;
+  const fullOrder = row => row ? { ...copy(row), table: copy(data.tables.find(t => t.id === row.tableId)), payments: data.payments.filter(p => p.orderId === row.id).map(copy), invoice: copy(data.invoices.find(i => i.orderId === row.id)) } : null;
   const create = (rows, values) => { const row = { id: id(sequence++), ...values }; rows.push(row); return copy(row); };
   prisma.user.findUnique = async ({ where }) => fullUser(data.users.find(row => match(row, where)));
   prisma.user.create = async ({ data: values }) => create(data.users, { isActive: true, restaurantId: null, ...values });
@@ -25,6 +25,33 @@ function fixtures() {
   prisma.restaurant.findFirst = async ({ where }) => copy(data.restaurants.find(row => match(row, where)));
   prisma.restaurant.create = async ({ data: values }) => create(data.restaurants, { settings: { taxPercentage: 0 }, ...values });
   prisma.restaurantSetting.create = async ({ data: values }) => copy(values);
+  prisma.restaurantSetting.findUnique = async ({ where }) => {
+    const restaurant = data.restaurants.find(row => row.id === where.restaurantId);
+    return restaurant ? {
+      restaurantId: restaurant.id,
+      invoiceSeries: restaurant.invoiceSeries ?? 'INV',
+    } : null;
+  };
+  prisma.invoice.upsert = async ({ where, update, create: values }) => {
+    let row = data.invoices.find(invoice => invoice.orderId === where.orderId);
+    if (row) {
+      Object.assign(row, update);
+      return copy(row);
+    }
+    return create(data.invoices, values);
+  };
+  prisma.invoice.findFirst = async ({ where }) => {
+    const row = data.invoices.find(invoice => {
+      if (where.orderId && invoice.orderId !== where.orderId) return false;
+      if (where.restaurantId && invoice.restaurantId !== where.restaurantId) return false;
+      if (where.order?.restaurantId) {
+        const order = data.orders.find(order => order.id === invoice.orderId);
+        if (!order || order.restaurantId !== where.order.restaurantId) return false;
+      }
+      return true;
+    });
+    return copy(row);
+  };
   prisma.restaurantTable.findFirst = async ({ where }) => copy(data.tables.find(row => match(row, where)));
   prisma.menuItem.findMany = async ({ where }) => data.menu.filter(row => match(row, where)).map(copy);
   prisma.order.findFirst = async ({ where }) => { queries.push({ operation: 'findFirst', where }); return fullOrder(data.orders.find(row => match(row, where))); };

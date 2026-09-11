@@ -47,20 +47,70 @@ export async function inventoryAnalytics(restaurantId: string, range: Range) {
 
 export async function financialAnalytics(restaurantId: string, range: Range) {
   const orders: Prisma.OrderWhereInput = { restaurantId, status: { in: ['SERVED', 'PAID'] }, createdAt: range };
-  const [sales, refunds, expenses, payments] = await Promise.all([
+  const [sales, refunds, expenses, payments, soldItems, recipes] = await Promise.all([
     prisma.order.aggregate({ where: orders, _sum: { subtotal: true, taxAmount: true, totalAmount: true }, _count: { id: true } }),
     prisma.payment.aggregate({ where: { restaurantId, order: orders, status: { in: ['SUCCESS', 'REFUNDED'] } }, _sum: { refundedAmount: true } }),
     prisma.expenses.groupBy({ by: ['category'], where: { restaurant_id: restaurantId, expense_date: range }, _sum: { amount: true } }),
     prisma.payment.groupBy({ by: ['paymentMethod'], where: {
       restaurantId, order: orders, status: { in: ['SUCCESS', 'REFUNDED'] },
     }, _sum: { amount: true, refundedAmount: true } }),
+    prisma.orderItem.groupBy({
+      by: ['menuItemId'],
+      where: { order: orders },
+      _sum: { quantity: true },
+    }),
+    prisma.recipe.findMany({
+      where: { menuItem: { restaurantId } },
+      select: {
+        menuItemId: true,
+        ingredients: {
+          select: {
+            quantity: true,
+            rawMaterial: {
+              select: { averageCost: true, purchasePrice: true, unit: true },
+            },
+          },
+        },
+      },
+    }),
   ]);
   const gross = decimal(sales._sum.subtotal ?? 0).plus(sales._sum.taxAmount ?? 0);
   const total = sales._sum.totalAmount ?? 0;
   const refunded = refunds._sum.refundedAmount ?? 0;
   const net = decimal(total).minus(refunded);
   const expenseTotal = expenses.reduce((sum, row) => sum.plus(row._sum.amount ?? 0), decimal(0));
-  const profit = net.minus(expenseTotal);
+
+  const recipesByMenuItem = new Map(recipes.map(recipe => [recipe.menuItemId, recipe]));
+  let estimatedCogs = decimal(0);
+
+  for (const sold of soldItems) {
+    if (!sold.menuItemId) continue;
+    const recipe = recipesByMenuItem.get(sold.menuItemId);
+    if (!recipe) continue;
+
+    let unitCost = decimal(0);
+    for (const ingredient of recipe.ingredients) {
+      const materialUnit = (ingredient.rawMaterial.unit || '').toUpperCase().trim();
+      const conversionFactor =
+        materialUnit === 'KG' || materialUnit === 'LTR' || materialUnit === 'L'
+          ? 1000
+          : 1;
+
+      const normalizedQuantity = decimal(ingredient.quantity).dividedBy(conversionFactor);
+      unitCost = unitCost.plus(
+        normalizedQuantity.times(
+          ingredient.rawMaterial.averageCost ?? ingredient.rawMaterial.purchasePrice ?? 0
+        )
+      );
+    }
+
+    estimatedCogs = estimatedCogs.plus(
+      unitCost.times(sold._sum.quantity ?? 0)
+    );
+  }
+
+  const grossProfit = net.minus(estimatedCogs);
+  const operatingProfit = grossProfit.minus(expenseTotal);
   const paymentMethods = { upi: 0, cash: 0, card: 0, other: 0 };
   for (const row of payments) {
     const method = row.paymentMethod?.trim().toLowerCase();
@@ -70,9 +120,22 @@ export async function financialAnalytics(restaurantId: string, range: Range) {
   }
   for (const key of Object.keys(paymentMethods) as (keyof typeof paymentMethods)[]) paymentMethods[key] = money(paymentMethods[key]);
   return {
-    summary: { gross: money(gross), net: money(net), expenses: money(expenseTotal), profit: money(profit),
-      gst: money(sales._sum.taxAmount ?? 0), grossMargin: net.gt(0) ? Number(profit.dividedBy(net).times(100).toFixed(1)) : 0,
-      orders: sales._count.id, discounts: money(gross.minus(total)), refunds: money(refunded) },
+    summary: {
+      gross: money(gross),
+      net: money(net),
+      expenses: money(expenseTotal),
+      cogs: money(estimatedCogs),
+      grossProfit: money(grossProfit),
+      operatingProfit: money(operatingProfit),
+      profit: money(operatingProfit),
+      gst: money(sales._sum.taxAmount ?? 0),
+      grossMargin: net.gt(0) ? Number(grossProfit.dividedBy(net).times(100).toFixed(1)) : 0,
+      operatingMargin: net.gt(0) ? Number(operatingProfit.dividedBy(net).times(100).toFixed(1)) : 0,
+      costBasis: 'estimated_current_recipe_cost',
+      orders: sales._count.id,
+      discounts: money(gross.minus(total)),
+      refunds: money(refunded),
+    },
     paymentMethods,
     expenseBreakdown: expenses.map(row => ({ category: row.category.toLowerCase(), amount: money(row._sum.amount ?? 0) }))
       .filter(row => row.amount !== 0).sort((a, b) => a.category.localeCompare(b.category)),

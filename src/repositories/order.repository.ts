@@ -1,11 +1,12 @@
 import { restaurantTimezone, dateRange } from '../lib/timezone';
 import { prisma } from '../lib/prisma';
-import { Order, OrderStatus, OrderItem, RestaurantTable, Payment } from '@prisma/client';
+import { Order, OrderStatus, OrderItem, RestaurantTable, Payment, Invoice } from '@prisma/client';
 
 export type OrderWithDetails = Order & {
   table: RestaurantTable;
   orderItems: OrderItem[];
   payments: Payment[];
+  invoice: Invoice | null;
 };
 
 export interface OrderFilters {
@@ -53,7 +54,7 @@ export class OrderRepository {
 
     const results = await prisma.order.findMany({
       where,
-      include: { table: true, orderItems: true, payments: true },
+      include: { table: true, orderItems: true, payments: true, invoice: true },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: pagination.limit + 1,
       ...(pagination.cursor ? { cursor: { id: pagination.cursor }, skip: 1 } : {}),
@@ -75,7 +76,7 @@ export class OrderRepository {
   async findById(id: string, restaurantId: string): Promise<OrderWithDetails | null> {
     return prisma.order.findFirst({
       where: { id, restaurantId },
-      include: { table: true, orderItems: true, payments: true },
+      include: { table: true, orderItems: true, payments: true, invoice: true },
     }) as Promise<OrderWithDetails | null>;
   }
 

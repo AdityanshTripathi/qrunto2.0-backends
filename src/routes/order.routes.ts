@@ -11,6 +11,7 @@ router.use(authenticate, requireRoles([UserRole.RESTAURANT_OWNER, UserRole.SUPER
 
 router.get('/', (req, res) => orderController.getOrders(req, res));
 router.get('/stats', (req, res) => orderController.getOrderStats(req, res));
+router.get('/:id/invoice', (req, res) => orderController.getInvoice(req, res));
 router.get('/:id', (req, res) => orderController.getOrderById(req, res));
 router.patch('/:id/status', (req, res) => orderController.updateOrderStatus(req, res));
 router.post('/:id/loyalty-discount', (req, res) => orderController.applyLoyaltyDiscount(req, res));

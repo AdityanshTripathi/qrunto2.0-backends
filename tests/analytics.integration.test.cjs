@@ -40,6 +40,9 @@ beforeEach(() => {
       return [...groups.values()].map(group => ({ ...Object.fromEntries(options.by.map(key => [key, group[0][key]])), ...aggregate(group, options) }));
     };
   }
+
+  prisma.orderItem.groupBy = async () => [];
+  prisma.recipe.findMany = async () => [];
 });
 async function request(endpoint, query = 'startDate=2026-09-01&endDate=2026-09-01', user = a.user) {
   const response = await fetch(`${base}/${endpoint}?${query}`, {
@@ -66,7 +69,7 @@ test('Analytics: registered routes require auth and return honest empty frontend
   const inventory = await request('inventory'); assert.equal(inventory.status, 200);
   assert.deepEqual(inventory.body, { value: { totalStockValue: 0, wastageCost: 0 }, consumption: [], turnover: [], lowStockCount: 0, outOfStockCount: 0, deadStockCount: 0 });
   const financial = await request('financials'); assert.equal(financial.status, 200);
-  assert.deepEqual(financial.body, { summary: { gross: 0, net: 0, expenses: 0, profit: 0, gst: 0, grossMargin: 0, orders: 0, discounts: 0, refunds: 0 }, paymentMethods: { upi: 0, cash: 0, card: 0, other: 0 }, expenseBreakdown: [] });
+  assert.deepEqual(financial.body, { summary: { gross: 0, net: 0, expenses: 0, cogs: 0, grossProfit: 0, operatingProfit: 0, profit: 0, gst: 0, grossMargin: 0, operatingMargin: 0, costBasis: 'estimated_current_recipe_cost', orders: 0, discounts: 0, refunds: 0 }, paymentMethods: { upi: 0, cash: 0, card: 0, other: 0 }, expenseBreakdown: [] });
 });
 
 test('Inventory: real fixture quantities, zero costs, duplicate names, dates and tenant isolation', async () => {
@@ -94,7 +97,7 @@ test('Financials: aggregate orders once, refunds, discounts, expenses and actual
   rows.payment.push(payment('one', 70, 'UPI', { refundedAmount: 20 }), payment('one', 30, 'CASH'), payment('two', 55, 'CARD', { status: 'REFUNDED', refundedAmount: 55 }), payment('one', 900, 'UPI', { status: 'FAILED' }), payment('cancelled', 900, 'UPI'), payment('foreign', 900, 'UPI'), payment('one', 900, 'UPI', { restaurantId: b.restaurant.id, refundedAmount: 900 }));
   rows.expenses.push({ restaurant_id: tenant, category: 'RENT', amount: 20, expense_date: date('2026-09-01') }, { restaurant_id: tenant, category: 'OPERATIONAL', amount: 5, expense_date: date('2026-09-01T23:59:59.999Z') }, { restaurant_id: b.restaurant.id, category: 'RENT', amount: 900, expense_date: date('2026-09-01') });
   const res = await request('financials'); assert.equal(res.status, 200);
-  assert.deepEqual(res.body.summary, { gross: 165, net: 80, expenses: 25, profit: 55, gst: 15, grossMargin: 68.8, orders: 2, discounts: 10, refunds: 75 });
+  assert.deepEqual(res.body.summary, { gross: 165, net: 80, expenses: 25, cogs: 0, grossProfit: 80, operatingProfit: 55, profit: 55, gst: 15, grossMargin: 100, operatingMargin: 68.8, costBasis: 'estimated_current_recipe_cost', orders: 2, discounts: 10, refunds: 75 });
   assert.deepEqual(res.body.paymentMethods, { upi: 50, cash: 30, card: 0, other: 0 });
   assert.equal(res.body.expenseBreakdown.length, 2); assert.equal(calls.length, 4);
   assert.ok(calls.every(call => (call.where.restaurantId ?? call.where.restaurant_id) === tenant));
@@ -102,6 +105,58 @@ test('Financials: aggregate orders once, refunds, discounts, expenses and actual
   assert.equal((await request('financials')).body.paymentMethods.other, 7);
   const narrow = await request('financials', 'startDate=2026-09-02&endDate=2026-09-02');
   assert.equal(narrow.body.summary.orders, 1); assert.equal(narrow.body.summary.expenses, 0);
+});
+
+test('Financials: recipe COGS drives gross and operating profit', async () => {
+  const tenant = a.restaurant.id;
+
+  rows.order.push({
+    id: 'cogs-order',
+    restaurantId: tenant,
+    status: 'PAID',
+    createdAt: date('2026-09-01T12:00:00Z'),
+    subtotal: 100,
+    taxAmount: 0,
+    totalAmount: 100
+  });
+
+  rows.expenses.push({
+    restaurant_id: tenant,
+    category: 'RENT',
+    amount: 10,
+    expense_date: date('2026-09-01T12:00:00Z')
+  });
+
+  prisma.orderItem.groupBy = async q => {
+    assert.equal(q.where.order.restaurantId, tenant);
+    return [{ menuItemId: 'menu-cogs', _sum: { quantity: 2 } }];
+  };
+
+  prisma.recipe.findMany = async q => {
+    assert.equal(q.where.menuItem.restaurantId, tenant);
+    return [{
+      menuItemId: 'menu-cogs',
+      ingredients: [{
+        quantity: 500,
+        rawMaterial: {
+          unit: 'KG',
+          averageCost: 20,
+          purchasePrice: 25
+        }
+      }]
+    }];
+  };
+
+  const res = await request('financials');
+  assert.equal(res.status, 200);
+  assert.equal(res.body.summary.net, 100);
+  assert.equal(res.body.summary.cogs, 20);
+  assert.equal(res.body.summary.grossProfit, 80);
+  assert.equal(res.body.summary.operatingProfit, 70);
+  assert.equal(res.body.summary.profit, 70);
+  assert.equal(res.body.summary.grossMargin, 80);
+  assert.equal(res.body.summary.operatingMargin, 70);
+  assert.equal(res.body.summary.costBasis, 'estimated_current_recipe_cost');
 });
 
 test('Analytics: malformed dates and unlinked sessions fail before analytics reads', async () => {

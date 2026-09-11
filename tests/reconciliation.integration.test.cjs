@@ -31,6 +31,22 @@ test('Executive and financial reports use stored order discounts/GST and scope v
   await new AnalyticsController().getExecutive({user:a.user,query:{startDate:'2026-09-01',endDate:'2026-09-01'}},res);
   assert.equal(res.statusCode??200,200);assert.equal(res.body.revenue.discounts,10);assert.equal(res.body.revenue.gst,5);assert.equal(res.body.revenue.net,85);
   prisma.expenses.groupBy=async()=>[];
+  prisma.orderItem.groupBy=async q=>{
+    assert.equal(q.where.order.restaurantId,a.restaurant.id);
+    return [];
+  };
+  prisma.recipe.findMany=async q=>{
+    assert.equal(q.where.menuItem.restaurantId,a.restaurant.id);
+    return [];
+  };
+  prisma.orderItem.groupBy=async q=>{
+    assert.equal(q.where.order.restaurantId,a.restaurant.id);
+    return [];
+  };
+  prisma.recipe.findMany=async q=>{
+    assert.equal(q.where.menuItem.restaurantId,a.restaurant.id);
+    return [];
+  };
   prisma.payment.groupBy=async q=>{assert.equal(q.where.paidAt,undefined);assert.ok(q.where.order.createdAt);return [{paymentMethod:'CASH',_sum:{amount:95,refundedAmount:10}}];};
   const report=await financialAnalytics(a.restaurant.id,{gte:new Date('2026-09-01'),lt:new Date('2026-09-02')});
   assert.equal(report.summary.net,85);assert.equal(report.paymentMethods.cash,85);
