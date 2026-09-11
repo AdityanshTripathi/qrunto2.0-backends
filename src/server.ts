@@ -194,13 +194,13 @@ app.get('/ready', async (_req: Request, res: Response) => {
 
 
 // GLOBAL_SANITIZED_ERROR_HANDLER
-app.use((err: unknown, _req: Request, res: Response, _next: any) => {
+app.use((err: unknown, req: Request, res: Response, _next: any) => {
   if (err instanceof Error && err.message === 'Origin is not allowed by CORS') {
     res.status(403).json({ error: 'Origin is not allowed by CORS' });
     return;
   }
 
-  console.error('[Unhandled API error]', err);
+  logSafeError('request.unhandled', err, 'http', { method: req.method, path: req.path });
   res.status(500).json({ error: 'Internal server error' });
 });
 

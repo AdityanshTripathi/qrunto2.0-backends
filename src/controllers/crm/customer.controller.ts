@@ -62,24 +62,24 @@ export class CustomerController {
           return;
         }
       }
-      const limit = req.query['limit'] ? parseInt(req.query['limit'] as string, 10) : 20;
-      const offset = req.query['offset'] ? parseInt(req.query['offset'] as string, 10) : 0;
+      const requestedLimit = req.query['limit'] === undefined ? 20 : Number(req.query['limit']);
+      const requestedOffset = req.query['offset'] === undefined ? 0 : Number(req.query['offset']);
+      if (!Number.isInteger(requestedLimit) || requestedLimit < 1 ||
+          !Number.isInteger(requestedOffset) || requestedOffset < 0) {
+        res.status(400).json({ error: 'Invalid pagination parameters' });
+        return;
+      }
+      const limit = Math.min(requestedLimit, 100);
+      const offset = requestedOffset;
       const sortBy = req.query['sortBy'] as string;
       const sortOrder = req.query['sortOrder'] as 'asc' | 'desc';
 
-      const customers = await customerRepository.findMany(brandId, {
-        search,
-        restaurantId,
-        limit,
-        offset,
-        sortBy,
-        sortOrder,
-      });
-
-      const total = await customerRepository.count(brandId, {
-        search,
-        restaurantId,
-      });
+      const [customers, total] = await Promise.all([
+        customerRepository.findMany(brandId, {
+          search, restaurantId, limit, offset, sortBy, sortOrder,
+        }),
+        customerRepository.count(brandId, { search, restaurantId }),
+      ]);
 
       res.status(200).json({ customers, total });
     } catch (err: any) {

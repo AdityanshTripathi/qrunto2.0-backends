@@ -4,7 +4,24 @@ import { decimal } from '../lib/money';
 import jwt from 'jsonwebtoken';
 import { UserRole, PaymentStatus, PasscodeResetStatus, SubscriptionStatus } from '@prisma/client';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'default_jwt_secret_12345';
+const configuredJwtSecret = process.env.JWT_SECRET;
+if (!configuredJwtSecret) throw new Error('JWT_SECRET environment variable is required');
+const JWT_SECRET: string = configuredJwtSecret;
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function transactionPage(query: Request['query']): { cursor?: string; limit: number } | null {
+  const rawLimit = query['limit'];
+  const parsedLimit = rawLimit === undefined ? 50 : Number(rawLimit);
+  if (!Number.isInteger(parsedLimit) || parsedLimit <= 0) return null;
+
+  const rawCursor = query['cursor'];
+  if (rawCursor !== undefined && (typeof rawCursor !== 'string' || !UUID_PATTERN.test(rawCursor))) return null;
+
+  return rawCursor === undefined
+    ? { limit: Math.min(parsedLimit, 100) }
+    : { cursor: rawCursor as string, limit: Math.min(parsedLimit, 100) };
+}
 
 export class SuperAdminController {
   // ─── GET /api/superadmin/dashboard-stats ──────────────────────────────────
@@ -341,16 +358,28 @@ export class SuperAdminController {
   // ─── GET /api/superadmin/transactions ─────────────────────────────────────
   async getTransactions(req: Request, res: Response): Promise<void> {
     try {
+      const page = transactionPage(req.query);
+      if (!page) {
+        res.status(400).json({ error: 'Invalid pagination parameters' });
+        return;
+      }
+
       const payments = await prisma.payment.findMany({
         include: {
           restaurant: { select: { name: true } },
           order: { select: { orderNumber: true } },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: page.limit + 1,
+        ...(page.cursor ? { cursor: { id: page.cursor }, skip: 1 } : {}),
       });
 
+      const hasMore = payments.length > page.limit;
+      const pagePayments = payments.slice(0, page.limit);
+      const nextCursor = hasMore ? pagePayments[pagePayments.length - 1]?.id ?? null : null;
+
       res.status(200).json({
-        payments: payments.map((p) => ({
+        payments: pagePayments.map((p) => ({
           id: p.id,
           restaurantName: p.restaurant.name,
           orderNumber: p.order?.orderNumber ?? 'N/A',
@@ -360,6 +389,7 @@ export class SuperAdminController {
           paidAt: p.paidAt,
           createdAt: p.createdAt,
         })),
+        pagination: { limit: page.limit, nextCursor, hasMore },
       });
     } catch (err: any) {
       res.status(500).json({ error: 'Internal server error' });

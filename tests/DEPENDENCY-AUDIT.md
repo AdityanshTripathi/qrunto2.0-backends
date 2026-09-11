@@ -1,6 +1,10 @@
-# Phase 4.3 dependency review — 2026-09-06
+# P3 dependency review — revalidated 2026-09-12
 
 Fresh registry audit (`npm audit --json --offline=false --prefer-online`):
+
+The 2026-09-12 P3 audit reproduced the same remaining result: 3 high-severity
+affected packages, all representing the single deferred `deepmerge-ts` advisory
+through Prisma's pinned configuration dependency; 0 critical, moderate, or low.
 
 | Scope | Before critical/high/moderate/low | After |
 | --- | --- | --- |
@@ -56,10 +60,10 @@ Prisma configuration or expose development tooling to untrusted callers.
 
 ## Verification
 
-Fresh credential-free install verified: `npm ci`, Prisma generation/validation,
-build/type-check, 26 passing integration tests (3 existing TODOs), and preflight
-reliability checks all passed. The updated lockfile is compatible with the
-current Node 24.x CI command sequence; no hosted run or deployment was triggered.
+The 2026-09-12 P3 pass ran both registry audits, Prisma validation, TypeScript,
+the production build, isolated preflight checks, and the full integration suite:
+126 total tests, 124 passed, 0 failed, and 2 intentional TODOs. No hosted run,
+dependency mutation, provider call, production access, or deployment was triggered.
 
 Use Node 24.x with `npm ci`, Prisma validation/generation, `npm run test:integration`
 (includes build/type-check), and the isolated preflight regression from Backend

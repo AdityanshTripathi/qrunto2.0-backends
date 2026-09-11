@@ -13,6 +13,18 @@ export interface CreateCampaignInput {
 
 const MAX_DELIVERY_ATTEMPTS = 3;
 const STALE_SENDING_MS = 10 * 60 * 1000;
+const CAMPAIGN_BATCH_SIZE = 50;
+
+interface CursorPage {
+  cursor?: string;
+  limit: number;
+}
+
+interface PageInfo {
+  limit: number;
+  nextCursor: string | null;
+  hasMore: boolean;
+}
 
 export class CampaignService {
   async createCampaign(brandId: string, data: CreateCampaignInput): Promise<any> {
@@ -29,11 +41,23 @@ export class CampaignService {
     } });
   }
 
-  async getCampaigns(brandId: string): Promise<any[]> {
-    return prisma.campaign.findMany({
+  async getCampaigns(brandId: string, page: CursorPage): Promise<{ campaigns: any[]; pagination: PageInfo }> {
+    const rows = await prisma.campaign.findMany({
       where: { brandId }, include: { segment: { select: { name: true } } },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: page.limit + 1,
+      ...(page.cursor ? { cursor: { id: page.cursor }, skip: 1 } : {}),
     });
+    const hasMore = rows.length > page.limit;
+    const campaigns = hasMore ? rows.slice(0, page.limit) : rows;
+    return {
+      campaigns,
+      pagination: {
+        limit: page.limit,
+        nextCursor: hasMore ? campaigns[campaigns.length - 1]?.id ?? null : null,
+        hasMore,
+      },
+    };
   }
 
   async deleteCampaign(brandId: string, campaignId: string): Promise<void> {
@@ -201,6 +225,8 @@ export class CampaignService {
         status: { in: [CampaignStatus.QUEUED, CampaignStatus.FAILED] },
         attemptCount: { lt: MAX_DELIVERY_ATTEMPTS }, scheduledAt: { lte: now },
       },
+      orderBy: [{ scheduledAt: 'asc' }, { id: 'asc' }],
+      take: CAMPAIGN_BATCH_SIZE,
     });
 
     let failed = 0;
@@ -223,12 +249,28 @@ export class CampaignService {
     return { processed: campaigns.length, failed };
   }
 
-  async getCampaignLogs(campaignId: string, brandId: string): Promise<any[]> {
+  async getCampaignLogs(
+    campaignId: string,
+    brandId: string,
+    page: CursorPage,
+  ): Promise<{ logs: any[]; pagination: PageInfo }> {
     const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, brandId } });
     if (!campaign) throw new Error('Campaign not found or unauthorized');
-    return prisma.campaignLog.findMany({
+    const rows = await prisma.campaignLog.findMany({
       where: { campaignId }, include: { customer: { select: { name: true, phone: true, email: true } } },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: page.limit + 1,
+      ...(page.cursor ? { cursor: { id: page.cursor }, skip: 1 } : {}),
     });
+    const hasMore = rows.length > page.limit;
+    const logs = hasMore ? rows.slice(0, page.limit) : rows;
+    return {
+      logs,
+      pagination: {
+        limit: page.limit,
+        nextCursor: hasMore ? logs[logs.length - 1]?.id ?? null : null,
+        hasMore,
+      },
+    };
   }
 }

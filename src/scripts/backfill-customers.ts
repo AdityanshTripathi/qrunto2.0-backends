@@ -90,7 +90,7 @@ async function run() {
               acquisitionSource: 'QR_ORDER',
             },
           });
-          console.log(`Created new Customer: ${name} (${phone})`);
+          console.log(`Created customer record ${customer.id}.`);
         } else {
           // If name is Anonymous but we have a better name now, update it
           if (customer.name === 'Anonymous Customer' && name !== 'Anonymous Customer') {
@@ -99,7 +99,7 @@ async function run() {
               data: { name: name },
             });
           }
-          console.log(`Found existing Customer: ${customer.name} (${phone})`);
+          console.log(`Found existing customer record ${customer.id}.`);
         }
 
         // Calculate outlet-specific metrics
@@ -164,16 +164,16 @@ async function run() {
             customerId: customer.id,
           },
         });
-        console.log(`Linked ${orderIds.length} orders to Customer ${customer.name}.`);
+        console.log(`Linked ${orderIds.length} orders to customer record ${customer.id}.`);
       }
     }
 
     console.log('CRM backfill migration completed successfully.');
-  } catch (error: any) {
-    console.error('Migration failed:', error.stack || error.message);
+  } catch {
+    console.error('Migration failed. Details withheld.');
+    process.exitCode = 1;
   } finally {
     await prisma.$disconnect();
-    process.exit(0);
   }
 }
 

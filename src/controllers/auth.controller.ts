@@ -4,6 +4,7 @@ import { AuthService } from '../services/auth.service';
 import { UserRepository } from '../repositories/user.repository';
 import { prisma } from '../lib/prisma';
 import { restaurantTimezone, timezone } from '../lib/timezone';
+import { logSafeError } from '../lib/safe-error';
 
 const authService = new AuthService();
 const userRepository = new UserRepository();
@@ -38,8 +39,13 @@ export class AuthController {
       // 2. Call service
       const result = await authService.register(validationResult.data);
       res.status(201).json(result);
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Email is already registered') {
+        res.status(400).json({ error: error.message });
+        return;
+      }
+      logSafeError('register', error, 'auth');
+      res.status(500).json({ error: 'Unable to register account' });
     }
   }
 
@@ -55,8 +61,13 @@ export class AuthController {
       // 2. Call service
       const result = await authService.login(validationResult.data);
       res.status(200).json(result);
-    } catch (err: any) {
-      res.status(401).json({ error: err.message });
+    } catch (error) {
+      if (error instanceof Error && ['Invalid email or password', 'Access denied: Waiter account is disabled'].includes(error.message)) {
+        res.status(401).json({ error: error.message });
+        return;
+      }
+      logSafeError('login', error, 'auth');
+      res.status(500).json({ error: 'Unable to sign in' });
     }
   }
 
@@ -72,8 +83,13 @@ export class AuthController {
       // 2. Call service
       const result = await authService.refresh(validationResult.data.refreshToken);
       res.status(200).json(result);
-    } catch (err: any) {
-      res.status(401).json({ error: err.message });
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Invalid or expired refresh token') {
+        res.status(401).json({ error: error.message });
+        return;
+      }
+      logSafeError('refresh', error, 'auth');
+      res.status(500).json({ error: 'Unable to refresh session' });
     }
   }
 

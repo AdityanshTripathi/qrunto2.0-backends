@@ -8,6 +8,7 @@ import { CouponService } from '../services/crm/coupon.service';
 import { ReferralService } from '../services/crm/referral.service';
 import { resolveAccessToken } from '../middlewares/auth.middleware';
 import { createHash } from 'node:crypto';
+import { logSafeError } from '../lib/safe-error';
 
 const referralService = new ReferralService();
 
@@ -113,7 +114,7 @@ export class PublicController {
           sessionId,
         },
       }).catch((logErr) => {
-        console.error('Failed to log menu view:', logErr);
+        logSafeError('menu.view', logErr, 'analytics', { restaurantId: restaurant.id });
       });
 
       const [categories, menuItems] = await Promise.all([
@@ -328,7 +329,7 @@ export class PublicController {
             customerName || 'Anonymous Customer'
           );
         } catch (crmErr) {
-          console.error('Failed to link customer in CRM:', crmErr);
+          logSafeError('customer.link', crmErr, 'crm', { restaurantId: restaurant.id });
         }
       }
 

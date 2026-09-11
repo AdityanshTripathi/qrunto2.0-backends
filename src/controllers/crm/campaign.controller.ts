@@ -17,6 +17,14 @@ const CreateCampaignSchema = z.object({
 
 const campaignService = new CampaignService();
 
+function cursorPage(query: AuthenticatedRequest['query']): { cursor?: string; limit: number } | null {
+  const cursor = typeof query['cursor'] === 'string' ? query['cursor'] : undefined;
+  const requestedLimit = query['limit'] === undefined ? 50 : Number(query['limit']);
+  if (!Number.isInteger(requestedLimit) || requestedLimit < 1) return null;
+  if (cursor && !z.string().uuid().safeParse(cursor).success) return null;
+  return cursor ? { cursor, limit: Math.min(requestedLimit, 100) } : { limit: Math.min(requestedLimit, 100) };
+}
+
 export class CampaignController {
   // Get all campaigns for brand
   async getCampaigns(req: AuthenticatedRequest, res: Response): Promise<void> {
@@ -38,8 +46,13 @@ export class CampaignController {
         return;
       }
 
-      const campaigns = await campaignService.getCampaigns(brandId);
-      res.status(200).json({ campaigns });
+      const page = cursorPage(req.query);
+      if (!page) {
+        res.status(400).json({ error: 'Invalid pagination parameters' });
+        return;
+      }
+      const result = await campaignService.getCampaigns(brandId, page);
+      res.status(200).json(result);
     } catch (err: any) {
       res.status(500).json({ error: 'Internal server error' });
     }
@@ -139,8 +152,13 @@ export class CampaignController {
         return;
       }
 
-      const logs = await campaignService.getCampaignLogs(campaignId, brandId);
-      res.status(200).json({ logs });
+      const page = cursorPage(req.query);
+      if (!page) {
+        res.status(400).json({ error: 'Invalid pagination parameters' });
+        return;
+      }
+      const result = await campaignService.getCampaignLogs(campaignId, brandId, page);
+      res.status(200).json(result);
     } catch (err: any) {
       res.status(500).json({ error: 'Internal server error' });
     }
@@ -166,8 +184,11 @@ export class CampaignController {
         return;
       }
 
-      const campaigns = await prisma.campaign.findMany({
-        where: { brandId }
+      const groups = await prisma.campaign.groupBy({
+        by: ['channel', 'status'],
+        where: { brandId },
+        _count: { _all: true },
+        _sum: { sentCount: true, failedCount: true },
       });
 
       let totalSent = 0;
@@ -177,18 +198,21 @@ export class CampaignController {
       let completedCount = 0;
       let pendingCount = 0;
 
-      for (const camp of campaigns) {
-        totalSent += camp.sentCount;
-        totalFailed += camp.failedCount;
-        if (camp.channel === 'EMAIL') emailCount++;
-        else if (camp.channel === 'SMS') smsCount++;
+      let totalCampaigns = 0;
+      for (const group of groups) {
+        const count = group._count._all;
+        totalCampaigns += count;
+        totalSent += group._sum.sentCount ?? 0;
+        totalFailed += group._sum.failedCount ?? 0;
+        if (group.channel === 'EMAIL') emailCount += count;
+        else if (group.channel === 'SMS') smsCount += count;
         
-        if (camp.status === 'COMPLETED') completedCount++;
-        else if (camp.status === 'QUEUED' || camp.status === 'SENDING') pendingCount++;
+        if (group.status === 'COMPLETED') completedCount += count;
+        else if (group.status === 'QUEUED' || group.status === 'SENDING') pendingCount += count;
       }
 
       res.status(200).json({
-        totalCampaigns: campaigns.length,
+        totalCampaigns,
         totalSent,
         totalFailed,
         emailCount,

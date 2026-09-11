@@ -5,6 +5,7 @@ import { prisma } from '../../lib/prisma';
 import { CouponService } from '../../services/crm/coupon.service';
 import { z } from 'zod';
 import { CouponDiscountType } from '@prisma/client';
+import { logSafeError } from '../../lib/safe-error';
 
 const CreateCouponSchema = z.object({
   code: z.string().min(2, 'Code must be at least 2 characters').max(30),
@@ -154,8 +155,15 @@ export class CouponController {
         actorBrandId
       );
       res.status(200).json({ message: 'Coupon issued successfully', issuance });
-    } catch (err: any) {
-      res.status(505).json({ error: err.message });
+    } catch (error) {
+      if (error instanceof Error && [
+        'Coupon campaign not found', 'Customer and coupon do not belong to the same business',
+      ].includes(error.message)) {
+        res.status(400).json({ error: error.message });
+        return;
+      }
+      logSafeError('coupon.issue', error, 'crm');
+      res.status(500).json({ error: 'Unable to issue coupon' });
     }
   }
 

@@ -6,8 +6,18 @@ import { prisma } from '../lib/prisma';
 const tableRepository = new TableRepository();
 const subscriptionRepository = new SubscriptionRepository();
 
-// Base URL for QR codes - used as the value encoded in the QR
-const APP_BASE_URL = 'https://ordio.in';
+export function appBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
+  const configured = env.APP_BASE_URL?.trim();
+  if (!configured) {
+    if (env.NODE_ENV === 'production') throw new Error('APP_BASE_URL environment variable is required');
+    return 'http://localhost:5173';
+  }
+  const parsed = new URL(configured);
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new Error('APP_BASE_URL must be a public HTTP(S) URL without credentials, query, or fragment');
+  }
+  return configured.replace(/\/$/, '');
+}
 
 
 export class TableService {
@@ -48,7 +58,7 @@ export class TableService {
     }
 
     // 4. Build the ordering URL (this is what the QR code encodes)
-    const orderingUrl = `${APP_BASE_URL}/order/${restaurant.slug}/${encodeURIComponent(tableNumber)}`;
+    const orderingUrl = `${appBaseUrl()}/order/${restaurant.slug}/${encodeURIComponent(tableNumber)}`;
 
     // 5. Create table with QR URL
     return tableRepository.create({
@@ -86,7 +96,7 @@ export class TableService {
       if (!restaurant) throw new Error('Restaurant not found');
 
       payload.tableNumber = data.tableNumber;
-      payload.qrCodeUrl = `${APP_BASE_URL}/order/${restaurant.slug}/${encodeURIComponent(data.tableNumber)}`;
+      payload.qrCodeUrl = `${appBaseUrl()}/order/${restaurant.slug}/${encodeURIComponent(data.tableNumber)}`;
     }
 
     if (data.isActive !== undefined) {

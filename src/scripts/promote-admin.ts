@@ -6,7 +6,8 @@ async function run() {
   const email = process.argv[2];
   if (!email) {
     console.error('Please specify an email address. Example: npx ts-node src/scripts/promote-admin.ts email@example.com');
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 
   try {
@@ -15,8 +16,9 @@ async function run() {
     });
 
     if (!user) {
-      console.error(`User with email "${email}" not found.`);
-      process.exit(1);
+      console.error('User not found.');
+      process.exitCode = 1;
+      return;
     }
 
     await prisma.user.update({
@@ -24,11 +26,12 @@ async function run() {
       data: { role: UserRole.SUPER_ADMIN }
     });
 
-    console.log(`Successfully promoted "${email}" to SUPER_ADMIN!`);
-  } catch (error: any) {
-    console.error('Failed to promote user:', error.message);
+    console.log('Successfully promoted user to SUPER_ADMIN.');
+  } catch {
+    console.error('Failed to promote user. Details withheld.');
+    process.exitCode = 1;
   } finally {
-    process.exit(0);
+    await prisma.$disconnect();
   }
 }
 

@@ -327,6 +327,7 @@ model Payment {
 
   @@index([restaurantId, status, paidAt])
   @@index([orderId])
+  @@index([createdAt, id])
   @@map("payments")
 }
 
@@ -411,6 +412,8 @@ model AuditLog {
 
   @@index([userId])
   @@index([entityType, entityId])
+  @@index([action, entityType, createdAt])
+  @@index([action, entityType, entityId])
   @@map("audit_logs")
 }
 
@@ -484,7 +487,7 @@ model Customer {
 
   @@unique([brandId, phone])
   @@index([phone])
-  @@index([brandId])
+  @@index([brandId, createdAt, id])
   @@map("customers")
 }
 
@@ -659,6 +662,9 @@ model Campaign {
   segment         Segment?        @relation(fields: [segmentId], references: [id])
 
   @@index([brandId, status, scheduledAt])
+  @@index([brandId, createdAt, id])
+  @@index([status, scheduledAt, id])
+  @@index([status, updatedAt])
   @@map("campaigns")
 }
 
@@ -675,6 +681,7 @@ model CampaignLog {
   customer     Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@index([customerId])
+  @@index([campaignId, createdAt, id])
   @@unique([campaignId, customerId])
   @@map("campaign_logs")
 }

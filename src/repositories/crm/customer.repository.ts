@@ -106,9 +106,9 @@ export class CustomerRepository {
     }
 
     // Determine query order
-    let orderByClause: any = {};
+    let orderByClause: any[] = [];
     if (sortBy === 'name' || sortBy === 'createdAt' || sortBy === 'updatedAt') {
-      orderByClause[sortBy] = sortOrder;
+      orderByClause = [{ [sortBy]: sortOrder }, { id: sortOrder }];
     }
 
     // Build include clause dynamically to prevent exactOptionalPropertyTypes errors
@@ -125,7 +125,7 @@ export class CustomerRepository {
     const customers = await prisma.customer.findMany({
       where: whereClause,
       include: includeClause,
-      orderBy: Object.keys(orderByClause).length > 0 ? orderByClause : { createdAt: 'desc' },
+      orderBy: orderByClause.length > 0 ? orderByClause : [{ createdAt: 'desc' }, { id: 'desc' }],
       take: limit,
       skip: offset,
     });

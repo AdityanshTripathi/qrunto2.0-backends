@@ -259,8 +259,14 @@ export class AuthService {
       }
 
       throw new Error('User/Waiter not found');
-    } catch (err: any) {
-      throw new Error(err.message || 'Invalid or expired refresh token');
+    } catch (error) {
+      const tokenFailure = error instanceof jwt.JsonWebTokenError ||
+        error instanceof jwt.TokenExpiredError || error instanceof jwt.NotBeforeError;
+      const accountFailure = error instanceof Error && [
+        'User not found', 'User/Waiter not found', 'Access denied: Waiter account is disabled',
+      ].includes(error.message);
+      if (tokenFailure || accountFailure) throw new Error('Invalid or expired refresh token');
+      throw error;
     }
   }
 }

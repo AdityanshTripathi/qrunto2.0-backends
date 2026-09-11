@@ -47,17 +47,18 @@ export class DeductionQueueService {
       take: 100,
     });
 
-    for (const entry of pending) {
-      const completed = await prisma.auditLog.findFirst({
-        where: {
-          action: 'INVENTORY_DEDUCTION_SUCCESS',
-          entityType: 'ORDER',
-          entityId: entry.entityId,
-        },
-        select: { id: true },
-      });
+    const completed = pending.length === 0 ? [] : await prisma.auditLog.findMany({
+      where: {
+        action: 'INVENTORY_DEDUCTION_SUCCESS',
+        entityType: 'ORDER',
+        entityId: { in: [...new Set(pending.map(entry => entry.entityId))] },
+      },
+      select: { entityId: true },
+    });
+    const completedOrderIds = new Set(completed.map(entry => entry.entityId));
 
-      if (completed) continue;
+    for (const entry of pending) {
+      if (completedOrderIds.has(entry.entityId)) continue;
 
       const metadata = entry.metadata as Record<string, unknown> | null;
       const restaurantId =
