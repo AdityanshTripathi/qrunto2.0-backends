@@ -1,12 +1,21 @@
 import 'dotenv/config';
+import { logSafeError, logStructured } from '../lib/safe-error';
 
 export class WhatsAppService {
   private static get config() {
     return {
-      phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || '1263351703520274',
+      phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || '',
       accessToken: process.env.WHATSAPP_ACCESS_TOKEN || '',
       graphApiUrl: 'https://graph.facebook.com/v20.0'
     };
+  }
+
+  private static providerConfig(): { phoneNumberId: string; accessToken: string; graphApiUrl: string } {
+    const config = this.config;
+    if (!config.phoneNumberId || !config.accessToken) {
+      throw Object.assign(new Error('WhatsApp provider configuration missing'), { code: 'WHATSAPP_CONFIG_MISSING' });
+    }
+    return config;
   }
 
   /**
@@ -28,7 +37,8 @@ export class WhatsAppService {
   static async sendTextMessage(toPhone: string, messageText: string): Promise<any> {
     try {
       const formattedPhone = this.formatPhoneNumber(toPhone);
-      const url = `${this.config.graphApiUrl}/${this.config.phoneNumberId}/messages`;
+      const config = this.providerConfig();
+      const url = `${config.graphApiUrl}/${config.phoneNumberId}/messages`;
 
       const payload = {
         messaging_product: 'whatsapp',
@@ -44,23 +54,23 @@ export class WhatsAppService {
       const response = await fetch(url, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${this.config.accessToken}`,
+          'Authorization': `Bearer ${config.accessToken}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(10_000),
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        console.error('[WhatsApp API Send Text Failed]:', data);
-        throw new Error(data.error?.message || 'Failed to send WhatsApp message');
+        throw Object.assign(new Error('WhatsApp provider rejected message'), { code: `HTTP_${response.status}` });
       }
 
-      console.log('[WhatsApp API Send Text Success]:', data);
+      logStructured('info', 'whatsapp', 'message.text', 'completed', 'WhatsApp text message accepted');
       return data;
-    } catch (error: any) {
-      console.error('[WhatsAppService Error]:', error.message || error);
+    } catch (error) {
+      logSafeError('message.text', error, 'whatsapp');
       throw error;
     }
   }
@@ -76,7 +86,8 @@ export class WhatsAppService {
   ): Promise<any> {
     try {
       const formattedPhone = this.formatPhoneNumber(toPhone);
-      const url = `${this.config.graphApiUrl}/${this.config.phoneNumberId}/messages`;
+      const config = this.providerConfig();
+      const url = `${config.graphApiUrl}/${config.phoneNumberId}/messages`;
 
       const payload = {
         messaging_product: 'whatsapp',
@@ -94,23 +105,23 @@ export class WhatsAppService {
       const response = await fetch(url, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${this.config.accessToken}`,
+          'Authorization': `Bearer ${config.accessToken}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(10_000),
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        console.error('[WhatsApp API Send Template Failed]:', data);
-        throw new Error(data.error?.message || 'Failed to send WhatsApp template message');
+        throw Object.assign(new Error('WhatsApp provider rejected template'), { code: `HTTP_${response.status}` });
       }
 
-      console.log('[WhatsApp API Send Template Success]:', data);
+      logStructured('info', 'whatsapp', 'message.template', 'completed', 'WhatsApp template accepted');
       return data;
-    } catch (error: any) {
-      console.error('[WhatsAppService Template Error]:', error.message || error);
+    } catch (error) {
+      logSafeError('message.template', error, 'whatsapp');
       throw error;
     }
   }

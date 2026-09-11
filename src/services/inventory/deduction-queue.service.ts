@@ -4,6 +4,7 @@ import { redisUrl, sharedRedis } from '../../lib/redis';
 import { logSafeError, logStructured, safeError } from '../../lib/safe-error';
 import { DeductionJob, DurableDeductionQueue, QueueStore } from './durable-deduction-queue';
 import { getRequestId, requestIdOrNew, withRequestId } from '../../lib/request-context';
+import { serializableTransaction } from '../../lib/serializable-transaction';
 
 export class DeductionQueueService {
   private static durable = new DurableDeductionQueue(
@@ -100,7 +101,7 @@ export class DeductionQueueService {
   }
 
   private static async deductStockForOrder(orderId: string, restaurantId: string) {
-    return await prisma.$transaction(async (tx) => {
+    return await serializableTransaction(async (tx) => {
       // 1. Fetch the Order with items
       const order = await tx.order.findFirst({
         where: { id: orderId, restaurantId },
@@ -212,6 +213,6 @@ export class DeductionQueueService {
           entityId: orderId,
         },
       });
-    }, { isolationLevel: 'Serializable' });
+    });
   }
 }

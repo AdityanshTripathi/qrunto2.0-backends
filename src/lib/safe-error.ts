@@ -12,7 +12,10 @@ const messages: Record<string, string> = {
   P1001: 'Database unreachable', P1000: 'Database authentication failed',
   P2021: 'Database table missing', P2022: 'Database column missing',
   P2024: 'Database pool timeout', P2028: 'Database transaction failed',
-  '42P01': 'Database table missing', '42703': 'Database column missing',
+  P2034: 'Database transaction conflict', '40001': 'Database transaction conflict',
+  '40P01': 'Database transaction deadlock', '42P01': 'Database table missing', '42703': 'Database column missing',
+  CRM_PARTIAL_FAILURE: 'CRM batch partially failed',
+  WHATSAPP_CONFIG_MISSING: 'WhatsApp provider configuration missing',
 };
 
 export function safeError(error: unknown): { code: string; message: string } {

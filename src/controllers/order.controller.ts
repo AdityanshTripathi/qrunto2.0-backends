@@ -4,6 +4,7 @@ import { moneyNumber } from '../lib/money';
 import { z } from 'zod';
 import { OrderService } from '../services/order.service';
 import { OrderStatus } from '@prisma/client';
+import { logSafeError, safeError } from '../lib/safe-error';
 
 const orderService = new OrderService();
 
@@ -217,7 +218,16 @@ export class OrderController {
 
       res.status(200).json({ order });
     } catch (err: any) {
-      res.status(400).json({ error: err.message });
+      const safe = safeError(err);
+      if (safe.code !== 'UNKNOWN') {
+        logSafeError('order.pay', err, 'payments');
+        res.status(503).json({ error: safe.message });
+        return;
+      }
+      const message = err instanceof Error && /^(Only cash|Order not found|Cannot settle|Invalid order amount|Payment reconciliation|Refunded payment|Order changed)/.test(err.message)
+        ? err.message : 'Unable to settle order';
+      if (message === 'Unable to settle order') logSafeError('order.pay', err, 'payments');
+      res.status(400).json({ error: message });
     }
   }
 }

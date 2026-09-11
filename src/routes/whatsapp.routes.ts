@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { WhatsAppService } from '../services/whatsapp.service';
+import { logSafeError, logStructured } from '../lib/safe-error';
 
 const router = Router();
 
@@ -15,15 +16,15 @@ router.get('/', (req: Request, res: Response) => {
 
     const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
 
-    console.log('[WhatsApp Webhook GET] Verification request received:', { mode });
+    logStructured('info', 'whatsapp', 'webhook.verify', 'received', 'WhatsApp verification request received', { mode });
 
     if (mode && token) {
       if (verifyToken && mode === 'subscribe' && token === verifyToken) {
-        console.log('[WhatsApp Webhook] Verification successful!');
+        logStructured('info', 'whatsapp', 'webhook.verify', 'completed', 'WhatsApp webhook verified');
         res.type('text/plain').send(challenge);
         return;
       } else {
-        console.error('[WhatsApp Webhook] Verification failed. Token mismatch.');
+        logStructured('warn', 'whatsapp', 'webhook.verify', 'rejected', 'WhatsApp webhook verification rejected');
         res.sendStatus(403);
         return;
       }
@@ -31,7 +32,7 @@ router.get('/', (req: Request, res: Response) => {
 
     res.sendStatus(400);
   } catch (error) {
-    console.error('[WhatsApp Webhook GET Error]:', error);
+    logSafeError('webhook.verify', error, 'whatsapp');
     res.sendStatus(500);
   }
 });
@@ -45,14 +46,15 @@ router.post('/', (req: Request, res: Response) => {
     const body = req.body;
 
     if (body.object) {
-      console.log('[WhatsApp Webhook POST] Received event payload:', JSON.stringify(body, null, 2));
+      logStructured('info', 'whatsapp', 'webhook.event', 'received', 'WhatsApp webhook event received',
+        { object: typeof body.object === 'string' ? body.object : 'unknown' });
       res.status(200).send('EVENT_RECEIVED');
       return;
     }
 
     res.sendStatus(404);
   } catch (error) {
-    console.error('[WhatsApp Webhook POST Error]:', error);
+    logSafeError('webhook.event', error, 'whatsapp');
     res.sendStatus(500);
   }
 });
@@ -76,22 +78,23 @@ const requireSendTestEnabled = (req: Request, res: Response, next: NextFunction)
 router.post('/send-test', requireSendTestEnabled, async (req: Request, res: Response) => {
   try {
     const { phone, message, templateName } = req.body;
-    const targetPhone = phone || '917489844089';
+    if (typeof phone !== 'string' || (!templateName && typeof message !== 'string')) {
+      res.status(400).json({ success: false, error: 'Phone and message or templateName are required' });
+      return;
+    }
 
-    let result;
     if (templateName) {
-      result = await WhatsAppService.sendTemplateMessage(targetPhone, templateName);
+      await WhatsAppService.sendTemplateMessage(phone, templateName);
     } else {
-      const textMsg = message || '🎉 Hello from Ordio WhatsApp Business API integration!';
-      result = await WhatsAppService.sendTextMessage(targetPhone, textMsg);
+      await WhatsAppService.sendTextMessage(phone, message);
     }
 
     res.status(200).json({
       success: true,
       message: 'WhatsApp test message sent successfully!'
     });
-  } catch {
-    console.error('[WhatsApp Test Endpoint Error]');
+  } catch (error) {
+    logSafeError('send-test', error, 'whatsapp');
     res.status(500).json({
       success: false,
       error: 'Failed to send test message'

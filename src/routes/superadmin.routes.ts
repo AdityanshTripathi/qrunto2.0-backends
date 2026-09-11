@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { SuperAdminController } from '../controllers/superadmin.controller';
 import { authenticate, requireRoles } from '../middlewares/auth.middleware';
 import { UserRole } from '@prisma/client';
+import { logSafeError } from '../lib/safe-error';
 
 const router = Router();
 const superAdminController = new SuperAdminController();
@@ -46,9 +47,10 @@ router.post('/whatsapp/send-message', async (req, res) => {
       res.status(400).json({ message: 'Phone number and message text are required.' });
       return;
     }
-    const result = await WhatsAppService.sendTextMessage(phone, message);
-    res.status(200).json({ success: true, message: 'WhatsApp message delivered!', result });
-  } catch (err: any) {
+    await WhatsAppService.sendTextMessage(phone, message);
+    res.status(200).json({ success: true, message: 'WhatsApp message accepted.' });
+  } catch (error) {
+    logSafeError('admin.send-message', error, 'whatsapp');
     res.status(500).json({ error: 'Internal server error' });
   }
 });

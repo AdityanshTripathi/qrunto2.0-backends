@@ -16,7 +16,7 @@ export async function serializableTransaction<T>(
           ? String((error as { code?: unknown }).code ?? '')
           : '';
 
-      const retryable = code === 'P2034' || code === '40001';
+      const retryable = code === 'P2034' || code === '40001' || code === '40P01';
 
       if (!retryable || attempt === maxAttempts) {
         throw error;

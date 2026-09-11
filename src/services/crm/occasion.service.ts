@@ -1,6 +1,6 @@
 import { localDate, occasionDays, timezone } from '../../lib/timezone';
 import { prisma } from '../../lib/prisma';
-import { logSafeError } from '../../lib/safe-error';
+import { logSafeError, logStructured } from '../../lib/safe-error';
 
 export interface OccasionCustomer {
   id: string;
@@ -20,6 +20,7 @@ export class OccasionService {
 
     const now = new Date();
     const dispatched: OccasionCustomer[] = [];
+    let failedCount = 0;
 
     for (const customer of customers) {
       const zones = customer.profiles.filter(p => p.restaurant.brandId === customer.brandId).map(p => timezone(p.restaurant.timezone));
@@ -31,9 +32,6 @@ export class OccasionService {
           const bdayDate = new Date(meta['birthday']);
           if (zones.some(zone => localDate(now, zone).slice(5) === bdayDate.toISOString().slice(5, 10))) {
             // Match! Send Message
-            const msg = `Happy Birthday, ${customer.name}! 🎂 Celebrate your special day at Ordio and enjoy 15% off your next meal! Code: BDAY15`;
-            console.log(`[SMS Gateway Simulator] Occasion: BIRTHDAY | To: ${customer.phone} | Msg: ${msg}`);
-            
             // Create system notification
             await Promise.all(customer.profiles.filter(p => p.restaurant.brandId === customer.brandId && localDate(now, timezone(p.restaurant.timezone)).slice(5) === (meta['birthday'] as string).slice(5, 10)).map(p => prisma.notification.create({
               data: {
@@ -54,6 +52,7 @@ export class OccasionService {
             });
           }
         } catch (err) {
+          failedCount++;
           logSafeError('occasion.birthday', err);
         }
       }
@@ -64,9 +63,6 @@ export class OccasionService {
           const annivDate = new Date(meta['anniversary']);
           if (zones.some(zone => localDate(now, zone).slice(5) === annivDate.toISOString().slice(5, 10))) {
             // Match! Send Message
-            const msg = `Happy Anniversary, ${customer.name}! 🥂 Celebrate your milestone at Ordio and enjoy a complimentary dessert! Code: ANNV20`;
-            console.log(`[SMS Gateway Simulator] Occasion: ANNIVERSARY | To: ${customer.phone} | Msg: ${msg}`);
-            
             // Create system notification
             await Promise.all(customer.profiles.filter(p => p.restaurant.brandId === customer.brandId && localDate(now, timezone(p.restaurant.timezone)).slice(5) === (meta['anniversary'] as string).slice(5, 10)).map(p => prisma.notification.create({
               data: {
@@ -87,11 +83,15 @@ export class OccasionService {
             });
           }
         } catch (err) {
+          failedCount++;
           logSafeError('occasion.anniversary', err);
         }
       }
     }
 
+    logStructured(failedCount ? 'warn' : 'info', 'crm', 'occasion.scan',
+      failedCount ? 'partial' : 'completed', 'Occasion scan finished',
+      { customerCount: customers.length, dispatchedCount: dispatched.length, failedCount });
     return dispatched;
   }
 

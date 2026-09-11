@@ -1,5 +1,5 @@
 import { prisma } from '../../lib/prisma';
-import { logSafeError, safeError } from '../../lib/safe-error';
+import { logSafeError, logStructured, safeError } from '../../lib/safe-error';
 import { CampaignChannel, CampaignStatus, CampaignLogStatus } from '@prisma/client';
 
 export interface CreateCampaignInput {
@@ -11,197 +11,223 @@ export interface CreateCampaignInput {
   scheduledAt: Date;
 }
 
+const MAX_DELIVERY_ATTEMPTS = 3;
+const STALE_SENDING_MS = 10 * 60 * 1000;
+
 export class CampaignService {
-  // Create a new messaging campaign
   async createCampaign(brandId: string, data: CreateCampaignInput): Promise<any> {
     if (data.segmentId) {
       const segment = await prisma.segment.findFirst({
-        where: {
-          id: data.segmentId,
-          brandId,
-        },
-        select: { id: true },
+        where: { id: data.segmentId, brandId }, select: { id: true },
       });
-
-      if (!segment) {
-        throw new Error('Segment not found or unauthorized');
-      }
+      if (!segment) throw new Error('Segment not found or unauthorized');
     }
-
-    return prisma.campaign.create({
-      data: {
-        brandId,
-        name: data.name,
-        channel: data.channel,
-        segmentId: data.segmentId ?? null,
-        templateSubject: data.templateSubject ?? null,
-        templateBody: data.templateBody,
-        status: CampaignStatus.QUEUED, // auto-queue upon creation
-        scheduledAt: data.scheduledAt,
-      },
-    });
+    return prisma.campaign.create({ data: {
+      brandId, name: data.name, channel: data.channel, segmentId: data.segmentId ?? null,
+      templateSubject: data.templateSubject ?? null, templateBody: data.templateBody,
+      status: CampaignStatus.QUEUED, scheduledAt: data.scheduledAt,
+    } });
   }
 
-  // Get campaigns list for brand
   async getCampaigns(brandId: string): Promise<any[]> {
     return prisma.campaign.findMany({
-      where: { brandId },
-      include: {
-        segment: { select: { name: true } },
-      },
+      where: { brandId }, include: { segment: { select: { name: true } } },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  // Delete campaign
   async deleteCampaign(brandId: string, campaignId: string): Promise<void> {
-    const campaign = await prisma.campaign.findFirst({
-      where: { id: campaignId, brandId },
-    });
-
-    if (!campaign) {
-      throw new Error('Campaign not found or unauthorized');
-    }
-
-    await prisma.campaign.delete({
-      where: { id: campaignId, brandId },
-    });
+    const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, brandId } });
+    if (!campaign) throw new Error('Campaign not found or unauthorized');
+    await prisma.campaign.delete({ where: { id: campaignId, brandId } });
   }
 
-  // Process and dispatch a campaign asynchronously
-  async sendCampaign(campaignId: string, brandId: string): Promise<void> {
+  // Provider integration remains intentionally absent. A future provider must use
+  // this deterministic key as its idempotency key before reporting success.
+  protected async deliverRecipient(_input: {
+    idempotencyKey: string; campaignId: string; customerId: string; brandId: string;
+  }): Promise<void> {
+    throw new Error('Campaign delivery provider is not configured');
+  }
+
+  async sendCampaign(campaignId: string, brandId: string): Promise<boolean> {
+    // Atomic claim: COMPLETED and exhausted campaigns can never be re-dispatched.
+    const claim = await prisma.campaign.updateMany({
+      where: {
+        id: campaignId, brandId,
+        status: { in: [CampaignStatus.QUEUED, CampaignStatus.FAILED] },
+        attemptCount: { lt: MAX_DELIVERY_ATTEMPTS },
+      },
+      data: { status: CampaignStatus.SENDING, attemptCount: { increment: 1 } },
+    });
+    if (claim.count !== 1) return true;
+
     const campaign = await prisma.campaign.findFirst({
-      where: { id: campaignId, brandId, status: CampaignStatus.QUEUED },
+      where: { id: campaignId, brandId, status: CampaignStatus.SENDING },
     });
-
-    if (!campaign) return;
-
-    // 1. Mark campaign as SENDING
-    await prisma.campaign.update({
-      where: { id: campaignId, brandId },
-      data: { status: CampaignStatus.SENDING },
-    });
+    if (!campaign) throw new Error('Claimed campaign not found');
 
     try {
-      // 2. Fetch targets
-      let targetCustomers: any[] = [];
+      let targets: Array<{ id: string }>;
       if (campaign.segmentId) {
         const memberships = await prisma.customerSegment.findMany({
-          where: {
-            segmentId: campaign.segmentId,
-            customer: { brandId },
-          },
+          where: { segmentId: campaign.segmentId, customer: { brandId } },
           include: { customer: true },
         });
-        targetCustomers = memberships.map((m) => m.customer);
+        targets = memberships.map(membership => membership.customer);
       } else {
-        targetCustomers = await prisma.customer.findMany({
-          where: { brandId },
-        });
+        targets = await prisma.customer.findMany({ where: { brandId }, select: { id: true } });
       }
 
-      if (targetCustomers.length === 0) {
-        await prisma.campaign.update({
-          where: { id: campaignId, brandId },
-          data: { status: CampaignStatus.COMPLETED },
+      if (targets.length === 0) {
+        await prisma.campaign.updateMany({
+          where: { id: campaignId, brandId, status: CampaignStatus.SENDING },
+          data: { status: CampaignStatus.COMPLETED, sentCount: 0, failedCount: 0 },
         });
-        return;
+        return true;
       }
 
-      console.log(`[Campaign Dispatcher] Starting Campaign "${campaign.name}" (${campaign.id}). Targets: ${targetCustomers.length}`);
+      logStructured('info', 'crm', 'campaign.dispatch', 'started', 'Campaign dispatch started',
+        { campaignId, brandId, targetCount: targets.length, attempt: campaign.attemptCount });
 
-      // 3. Create pending logs
       await prisma.campaignLog.createMany({
-        data: targetCustomers.map((c) => ({
-          campaignId,
-          customerId: c.id,
-          status: CampaignLogStatus.PENDING,
+        data: targets.map(customer => ({
+          campaignId, customerId: customer.id, status: CampaignLogStatus.PENDING,
         })),
+        skipDuplicates: true,
       });
-
-      // 4. Dispatch async (evaluate customer by customer)
+      const logs = await prisma.campaignLog.findMany({
+        where: { campaignId, customerId: { in: targets.map(customer => customer.id) } },
+        select: { customerId: true, status: true, attemptCount: true },
+      });
+      const byCustomer = new Map(logs.map(log => [log.customerId, log]));
       let sentCount = 0;
       let failedCount = 0;
 
-      for (const customer of targetCustomers) {
-        try {
-          // No delivery provider is connected. Never record simulated delivery as SENT.
-          await Promise.reject(new Error('Campaign delivery provider is not configured'));
+      for (const customer of targets) {
+        const log = byCustomer.get(customer.id);
+        if (!log) {
+          failedCount++;
+          logSafeError('campaign.log.missing', new Error('Campaign recipient log missing'), 'crm',
+            { campaignId, brandId, customerId: customer.id });
+          continue;
+        }
+        if (log.status === CampaignLogStatus.SENT) {
+          sentCount++;
+          continue;
+        }
+        if (log.attemptCount >= MAX_DELIVERY_ATTEMPTS) {
+          failedCount++;
+          continue;
+        }
 
-          // Mark log as SENT
+        const nextAttempt = log.attemptCount + 1;
+        const recipientClaim = await prisma.campaignLog.updateMany({
+          where: {
+            campaignId, customerId: customer.id,
+            status: { in: [CampaignLogStatus.PENDING, CampaignLogStatus.FAILED] },
+            attemptCount: log.attemptCount,
+          },
+          data: {
+            status: CampaignLogStatus.PENDING, attemptCount: { increment: 1 },
+            lastAttemptAt: new Date(), errorDetails: null,
+          },
+        });
+        if (recipientClaim.count !== 1) {
+          failedCount++;
+          continue;
+        }
+
+        try {
+          await this.deliverRecipient({
+            idempotencyKey: `campaign:${campaignId}:customer:${customer.id}`,
+            campaignId, customerId: customer.id, brandId,
+          });
           await prisma.campaignLog.updateMany({
-            where: { campaignId, customerId: customer.id },
-            data: { status: CampaignLogStatus.SENT },
+            where: {
+              campaignId, customerId: customer.id,
+              status: CampaignLogStatus.PENDING, attemptCount: nextAttempt,
+            },
+            data: { status: CampaignLogStatus.SENT, errorDetails: null },
           });
           sentCount++;
-        } catch (err: any) {
-          logSafeError('campaign.customer.dispatch', err);
-          
-          // Mark log as FAILED
+        } catch (error) {
+          logSafeError('campaign.customer.dispatch', error, 'crm',
+            { campaignId, brandId, customerId: customer.id, attempt: nextAttempt });
           await prisma.campaignLog.updateMany({
-            where: { campaignId, customerId: customer.id },
-            data: {
-              status: CampaignLogStatus.FAILED,
-              errorDetails: safeError(err).message,
+            where: {
+              campaignId, customerId: customer.id,
+              status: CampaignLogStatus.PENDING, attemptCount: nextAttempt,
             },
+            data: { status: CampaignLogStatus.FAILED, errorDetails: safeError(error).message },
           });
           failedCount++;
         }
-
-        // Periodically update campaign progress counts
-        await prisma.campaign.update({
-          where: { id: campaignId, brandId },
-          data: { sentCount, failedCount },
-        });
       }
 
-      // 5. Complete campaign
-      await prisma.campaign.update({
-        where: { id: campaignId, brandId },
-        data: { status: failedCount > 0 && sentCount === 0 ? CampaignStatus.FAILED : CampaignStatus.COMPLETED },
+      const completed = failedCount === 0;
+      await prisma.campaign.updateMany({
+        where: { id: campaignId, brandId, status: CampaignStatus.SENDING },
+        data: {
+          status: completed ? CampaignStatus.COMPLETED : CampaignStatus.FAILED,
+          sentCount, failedCount,
+        },
       });
-
-      console.log(`[Campaign Dispatcher] Campaign "${campaign.name}" completed. Sent: ${sentCount}, Failed: ${failedCount}`);
-    } catch (err: any) {
-      logSafeError('campaign.execution', err);
-      await prisma.campaign.update({
-        where: { id: campaignId, brandId },
+      logStructured(completed ? 'info' : 'warn', 'crm', 'campaign.dispatch',
+        completed ? 'completed' : 'partial', 'Campaign dispatch finished',
+        { campaignId, brandId, targetCount: targets.length, sentCount, failedCount, attempt: campaign.attemptCount });
+      return completed;
+    } catch (error) {
+      logSafeError('campaign.execution', error, 'crm', { campaignId, brandId });
+      await prisma.campaign.updateMany({
+        where: { id: campaignId, brandId, status: CampaignStatus.SENDING },
         data: { status: CampaignStatus.FAILED },
       });
+      return false;
     }
   }
 
-  // Find and process queued campaigns due for sending
-  async processQueuedCampaigns(): Promise<void> {
+  async processQueuedCampaigns(): Promise<{ processed: number; failed: number }> {
     const now = new Date();
-    const queuedCampaigns = await prisma.campaign.findMany({
+    const staleBefore = new Date(now.getTime() - STALE_SENDING_MS);
+    // A terminated invocation can leave SENDING behind. Recover stale work only;
+    // SENT recipient state and attempt counters make its retry safe and bounded.
+    await prisma.campaign.updateMany({
+      where: { status: CampaignStatus.SENDING, updatedAt: { lte: staleBefore } },
+      data: { status: CampaignStatus.FAILED },
+    });
+    const campaigns = await prisma.campaign.findMany({
       where: {
-        status: CampaignStatus.QUEUED,
-        scheduledAt: { lte: now },
+        status: { in: [CampaignStatus.QUEUED, CampaignStatus.FAILED] },
+        attemptCount: { lt: MAX_DELIVERY_ATTEMPTS }, scheduledAt: { lte: now },
       },
     });
 
-    for (const campaign of queuedCampaigns) {
-      // Keep dispatch inside the scheduler invocation's lifetime.
-      await this.sendCampaign(campaign.id, campaign.brandId);
+    let failed = 0;
+    let firstError: unknown;
+    for (const campaign of campaigns) {
+      try {
+        if (!await this.sendCampaign(campaign.id, campaign.brandId)) failed++;
+      } catch (error) {
+        failed++;
+        firstError ??= error;
+        logSafeError('campaign.batch.item', error, 'crm', { campaignId: campaign.id, brandId: campaign.brandId });
+      }
     }
+    logStructured(failed ? 'warn' : 'info', 'crm', 'campaign.batch',
+      failed ? 'partial' : 'completed', 'Campaign batch finished',
+      { processedCount: campaigns.length, failedCount: failed });
+    if (failed > 0) {
+      throw firstError ?? Object.assign(new Error('CRM campaign batch partially failed'), { code: 'CRM_PARTIAL_FAILURE' });
+    }
+    return { processed: campaigns.length, failed };
   }
 
-  // Fetch campaign logs metrics
   async getCampaignLogs(campaignId: string, brandId: string): Promise<any[]> {
-    const campaign = await prisma.campaign.findFirst({
-      where: { id: campaignId, brandId },
-    });
-
-    if (!campaign) {
-      throw new Error('Campaign not found or unauthorized');
-    }
-
+    const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, brandId } });
+    if (!campaign) throw new Error('Campaign not found or unauthorized');
     return prisma.campaignLog.findMany({
-      where: { campaignId },
-      include: {
-        customer: { select: { name: true, phone: true, email: true } },
-      },
+      where: { campaignId }, include: { customer: { select: { name: true, phone: true, email: true } } },
       orderBy: { createdAt: 'desc' },
     });
   }

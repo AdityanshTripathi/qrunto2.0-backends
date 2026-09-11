@@ -11,6 +11,7 @@ import { prisma } from '../lib/prisma';
 import { LoyaltyService } from './crm/loyalty.service';
 import { ProfilerService } from './crm/profiler.service';
 import { DeductionQueueService } from './inventory/deduction-queue.service';
+import { serializableTransaction } from '../lib/serializable-transaction';
 
 const orderRepository = new OrderRepository();
 async function ensureCashInvoice(
@@ -228,7 +229,7 @@ export class OrderService {
     // Staff can attest cash receipt; electronic methods require a provider that is not configured.
     if (paymentMethod !== 'CASH') throw new Error('Only cash settlement is available');
     let triggerDeduction = false;
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await serializableTransaction(async (tx) => {
       const order = await tx.order.findFirst({
         where: { id, restaurantId },
         include: { table: true, orderItems: true },

@@ -110,14 +110,28 @@ test('Business data: menu has real recipe costs or null, never fabricated views/
 });
 
 test('Business data: unconfigured campaign delivery cannot record successful sends', async t => {
-  const updates = [], logs = [];
-  prisma.campaign.findFirst = async q => { assert.equal(q.where.brandId, 'brand'); return { id: 'campaign', brandId: 'brand', name: 'Test', channel: 'SMS', segmentId: null }; };
-  prisma.campaign.update = async q => { updates.push(q.data); return q.data; };
+  const campaign = { id: 'campaign', brandId: 'brand', name: 'Test', channel: 'SMS', segmentId: null, status: 'QUEUED', attemptCount: 0 };
+  const log = { campaignId: 'campaign', customerId: 'customer', status: 'PENDING', attemptCount: 0, error: null };
+  prisma.campaign.updateMany = async q => {
+    assert.equal(q.where.brandId, 'brand');
+    if (q.where.status?.in && !q.where.status.in.includes(campaign.status)) return { count: 0 };
+    if (q.where.attemptCount?.lt !== undefined && campaign.attemptCount >= q.where.attemptCount.lt) return { count: 0 };
+    if (q.data.attemptCount?.increment) campaign.attemptCount += q.data.attemptCount.increment;
+    Object.assign(campaign, q.data, { attemptCount: campaign.attemptCount });
+    return { count: 1 };
+  };
+  prisma.campaign.findFirst = async q => { assert.equal(q.where.brandId, 'brand'); return campaign; };
   prisma.customer.findMany = async q => { assert.deepEqual(q.where, { brandId: 'brand' }); return [{ id: 'customer' }]; };
   prisma.campaignLog.createMany = async () => ({ count: 1 });
-  prisma.campaignLog.updateMany = async q => { logs.push(q.data); return { count: 1 }; };
+  prisma.campaignLog.findMany = async () => [log];
+  prisma.campaignLog.updateMany = async q => {
+    if (q.where.attemptCount !== undefined && q.where.attemptCount !== log.attemptCount) return { count: 0 };
+    if (q.data.attemptCount?.increment) log.attemptCount += q.data.attemptCount.increment;
+    Object.assign(log, q.data, { attemptCount: log.attemptCount });
+    return { count: 1 };
+  };
   t.mock.method(console, 'log', () => {}); t.mock.method(console, 'error', () => {});
-  await new CampaignService().sendCampaign('campaign', 'brand');
-  assert.ok(logs.every(log => log.status === 'FAILED'));
-  assert.ok(updates.every(row => !row.sentCount)); assert.equal(updates.at(-1).status, 'FAILED');
+  assert.equal(await new CampaignService().sendCampaign('campaign', 'brand'), false);
+  assert.equal(log.status, 'FAILED'); assert.equal(log.attemptCount, 1);
+  assert.equal(campaign.status, 'FAILED'); assert.equal(campaign.attemptCount, 1);
 });

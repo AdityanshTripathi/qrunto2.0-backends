@@ -68,6 +68,10 @@ export class DurableDeductionQueue {
       keys: [this.jobKey(job), READY],
       arguments: [JSON.stringify(job)],
     });
+    if (Number(result) === 1) {
+      logStructured('info', 'inventory', 'inventory.deduction.ready', 'ready',
+        'Inventory job queued', { orderId, restaurantId });
+    }
     if (Number(result) === 1 && this.options.autoStart) void this.drain();
     return Number(result) === 1;
   }
@@ -158,6 +162,8 @@ export class DurableDeductionQueue {
       return false;
     }
     try {
+      logStructured('info', 'inventory', 'inventory.deduction.processing', 'processing',
+        'Inventory job processing', { orderId: job.orderId, restaurantId: job.restaurantId, attempt: job.attempts + 1 });
       await this.handler(job);
       await store.set(this.jobKey(job), 'done', { EX: 30 * 24 * 60 * 60 });
       await store.lRem(PROCESSING, 1, raw);

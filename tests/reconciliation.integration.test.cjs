@@ -117,3 +117,16 @@ test('Inventory deduction uses serializable transaction to protect concurrent st
   prisma.auditLog.deleteMany=async()=>({count:1});
   await DeductionQueueService.deductStockForOrder('order',a.restaurant.id);
 });
+test('Inventory deduction retries a serialization conflict without duplicating its business effect',async()=>{
+  let attempts=0,successAudits=0;
+  prisma.$transaction=async(fn,options)=>{
+    attempts++;assert.equal(options.isolationLevel,'Serializable');
+    if(attempts===1)throw Object.assign(new Error('private conflict detail'),{code:'40001'});
+    return fn(prisma);
+  };
+  prisma.order.findFirst=async()=>({orderItems:[]});
+  prisma.auditLog.create=async()=>{successAudits++;};
+  prisma.auditLog.deleteMany=async()=>({count:1});
+  await DeductionQueueService.deductStockForOrder('order',a.restaurant.id);
+  assert.equal(attempts,2);assert.equal(successAudits,1);
+});

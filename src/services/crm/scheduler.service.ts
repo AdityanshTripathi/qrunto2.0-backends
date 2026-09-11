@@ -240,19 +240,31 @@ export class CRMScheduler {
 
   // Iterate over brands and trigger evaluation
   private static async runEvaluations(): Promise<void> {
-    try {
-      const brands = await prisma.brand.findMany({
-        select: { id: true, name: true },
-      });
+    const brands = await prisma.brand.findMany({
+      select: { id: true },
+    });
+    let failedBrands = 0;
+    let failedSegments = 0;
 
-      for (const brand of brands) {
-        await segmentService.evaluateAllSegmentsForBrand(brand.id);
+    for (const brand of brands) {
+      try {
+        const result = await segmentService.evaluateAllSegmentsForBrand(brand.id);
+        if (result.failed > 0) {
+          failedBrands++;
+          failedSegments += result.failed;
+        }
+      } catch (error) {
+        failedBrands++;
+        logSafeError('segments.brand', error, 'crm', { brandId: brand.id });
       }
-
-      logStructured('info', 'crm', 'segments.evaluate', 'completed', 'Segment evaluation completed',
-        { brandCount: brands.length });
-    } catch (err) {
-      throw err;
     }
+
+    const context = { brandCount: brands.length, failedBrandCount: failedBrands, failedSegmentCount: failedSegments };
+    if (failedBrands > 0) {
+      logStructured('warn', 'crm', 'segments.evaluate', 'partial', 'Segment evaluation partially failed', context);
+      throw Object.assign(new Error('CRM segment evaluation partially failed'), { code: 'CRM_PARTIAL_FAILURE' });
+    }
+
+    logStructured('info', 'crm', 'segments.evaluate', 'completed', 'Segment evaluation completed', context);
   }
 }

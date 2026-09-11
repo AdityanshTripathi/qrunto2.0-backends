@@ -14,10 +14,11 @@ test('CRM: actual Lua dead-letter writes failure state after bounded exponential
   const { sanitizeRequestId } = require('../dist/lib/request-context');
   const logs = []; t.mock.method(console, 'error', row => logs.push(row));
   t.mock.timers.enable({ apis: ['Date'], now });
-  void prisma.brand.findMany; void prisma.campaign.findMany;
+  void prisma.brand.findMany; void prisma.campaign.findMany; void prisma.campaign.updateMany;
   t.mock.method(prisma.brand, 'findMany', async () => [{ id: 'fixture-brand' }]);
+  t.mock.method(prisma.campaign, 'updateMany', async () => ({ count: 0 }));
   t.mock.method(prisma.campaign, 'findMany', async () => [{ id: 'fixture-campaign', brandId: 'fixture-brand' }]);
-  t.mock.method(SegmentService.prototype, 'evaluateAllSegmentsForBrand', async () => {});
+  t.mock.method(SegmentService.prototype, 'evaluateAllSegmentsForBrand', async () => ({ processed: 1, failed: 0 }));
   t.mock.method(OccasionService.prototype, 'checkAndSendOccasionMessages', async () => []);
   let attempts = 0;
   t.mock.method(CampaignService.prototype, 'sendCampaign', async () => { attempts++; throw new Error('synthetic campaign failure'); });
@@ -42,4 +43,47 @@ test('CRM: actual Lua dead-letter writes failure state after bounded exponential
   assert.equal(await store.get('crm:scheduler:lock'), null);
   assert.equal(await store.get('crm:scheduler:campaigns:attempts'), null);
   await CRMScheduler.runCycle(now, store); assert.equal(attempts, 3);
+});
+
+test('CRM: one brand failure does not stop later brands and prevents a false success checkpoint', async t => {
+  const now = new Date('2026-09-05T00:00:00Z');
+  t.mock.timers.enable({ apis: ['Date'], now });
+  void prisma.brand.findMany; void prisma.campaign.findMany; void prisma.campaign.updateMany;
+  t.mock.method(prisma.brand, 'findMany', async () => [{ id: 'failing-brand' }, { id: 'healthy-brand' }]);
+  t.mock.method(prisma.campaign, 'updateMany', async () => ({ count: 0 }));
+  t.mock.method(prisma.campaign, 'findMany', async () => []);
+  const evaluated = [];
+  t.mock.method(SegmentService.prototype, 'evaluateAllSegmentsForBrand', async brandId => {
+    evaluated.push(brandId);
+    return brandId === 'failing-brand' ? { processed: 2, failed: 1 } : { processed: 2, failed: 0 };
+  });
+  t.mock.method(OccasionService.prototype, 'checkAndSendOccasionMessages', async () => []);
+  const store = new LuaStore();
+  await assert.rejects(CRMScheduler.runCycle(now, store), error => error.code === 'CRM_PARTIAL_FAILURE');
+  assert.deepEqual(evaluated, ['failing-brand', 'healthy-brand']);
+  const bucket = Math.floor(now.getTime() / (4 * 60 * 60 * 1000));
+  assert.equal(await store.get(`crm:scheduler:segments:${bucket}`), null);
+  const status = await CRMScheduler.getStatus(store);
+  assert.equal(status.failures, 1); assert.equal(status.retries, 1);
+});
+
+test('CRM: one campaign failure does not stop later campaigns and is reported for retry', async t => {
+  const now = new Date('2026-09-05T00:00:00Z');
+  t.mock.timers.enable({ apis: ['Date'], now });
+  void prisma.brand.findMany; void prisma.campaign.findMany; void prisma.campaign.updateMany;
+  t.mock.method(prisma.brand, 'findMany', async () => []);
+  t.mock.method(prisma.campaign, 'updateMany', async () => ({ count: 0 }));
+  t.mock.method(prisma.campaign, 'findMany', async () => [
+    { id: 'failed-campaign', brandId: 'brand-a' }, { id: 'healthy-campaign', brandId: 'brand-b' },
+  ]);
+  const processed = [];
+  t.mock.method(CampaignService.prototype, 'sendCampaign', async campaignId => {
+    processed.push(campaignId); return campaignId !== 'failed-campaign';
+  });
+  t.mock.method(OccasionService.prototype, 'checkAndSendOccasionMessages', async () => []);
+  const store = new LuaStore();
+  await assert.rejects(CRMScheduler.runCycle(now, store), error => error.code === 'CRM_PARTIAL_FAILURE');
+  assert.deepEqual(processed, ['failed-campaign', 'healthy-campaign']);
+  const bucket = Math.floor(now.getTime() / 60000);
+  assert.equal(await store.get(`crm:scheduler:campaigns:${bucket}`), null);
 });

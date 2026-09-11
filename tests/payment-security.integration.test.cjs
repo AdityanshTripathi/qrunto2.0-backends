@@ -155,6 +155,34 @@ test('Cash transaction rolls back when ledger fails, then retry creates one paym
   assert.equal(db.data.payments.length,1);assert.equal(db.data.transactions.length,1);
 });
 
+test('Cash settlement retries bounded serialization failures without duplicate financial effects', async t => {
+  t.mock.method(DeductionQueueService,'enqueueDeduction',async()=>{});
+  const transaction=prisma.$transaction.bind(prisma); let attempts=0;
+  t.mock.method(prisma,'$transaction',async(...args)=>{
+    attempts++;
+    if(attempts<3) throw Object.assign(new Error('retryable conflict detail'),{code:'P2034'});
+    return transaction(...args);
+  });
+  await service.payOrder(order.id,a.restaurant.id,'CASH');
+  assert.equal(attempts,3);assert.equal(db.data.payments.length,1);assert.equal(db.data.transactions.length,1);assert.equal(db.data.invoices.length,1);
+});
+
+test('Cash settlement does not retry a non-retryable database failure', async t => {
+  t.mock.method(DeductionQueueService,'enqueueDeduction',async()=>{});
+  let attempts=0;
+  t.mock.method(prisma,'$transaction',async()=>{attempts++;throw Object.assign(new Error('private pool detail'),{code:'P2024'});});
+  await assert.rejects(service.payOrder(order.id,a.restaurant.id,'CASH'),error=>error.code==='P2024');
+  assert.equal(attempts,1);assert.equal(db.data.payments.length,0);assert.equal(db.data.transactions.length,0);
+});
+
+test('Cash settlement sanitizes exhausted database failures in the HTTP response', async t => {
+  const privateValue='private-host-and-connection-detail';
+  t.mock.method(prisma,'$transaction',async()=>{throw Object.assign(new Error(privateValue),{code:'P2024'});});
+  const res=response();
+  await new OrderController().payOrder({params:{id:order.id},user:a.user,body:{paymentMethod:'CASH'},app:{get:()=>null}},res);
+  assert.equal(res.code,503);assert.equal(res.body.error,'Database pool timeout');assert.equal(JSON.stringify(res.body).includes(privateValue),false);
+});
+
 test('Enqueue failure can be retried after payment commit without charging twice', async t => {
   let calls=0;
   t.mock.method(DeductionQueueService,'enqueueDeduction',async()=>{if(++calls===1)throw Error('queue unavailable');});

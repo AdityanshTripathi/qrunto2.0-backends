@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { timingSafeEqual } from 'node:crypto';
 import { CRMScheduler } from '../../services/crm/scheduler.service';
-import { logSafeError } from '../../lib/safe-error';
+import { logSafeError, logStructured } from '../../lib/safe-error';
 import { DeductionQueueService } from '../../services/inventory/deduction-queue.service';
 import { getMonitoringStatus } from '../../services/monitoring.service';
 
@@ -38,12 +38,16 @@ router.get('/', async (req, res) => {
     res.status(401).json({ error: 'Unauthorized' });
     return;
   }
+  const startedAt = Date.now();
+  logStructured('info', 'crm', 'cron.cycle', 'started', 'CRM cron cycle started');
   try {
     await DeductionQueueService.processPending();
     const status = await CRMScheduler.runCycle();
+    logStructured('info', 'crm', 'cron.cycle', status, 'CRM cron cycle finished',
+      { durationMs: Date.now() - startedAt });
     res.status(200).json({ status });
   } catch (error) {
-    logSafeError('cron.cycle', error);
+    logSafeError('cron.cycle', error, 'crm', { durationMs: Date.now() - startedAt });
     res.status(500).json({ error: 'Cron cycle failed' });
   }
 });

@@ -168,6 +168,45 @@ test('Tenant isolation: real Socket.IO handshake rejects bad auth and only joins
   }
 });
 
+test('Realtime: reconnect restores only the authorized room and delivers each event once', async () => {
+  async function packet(route, body) {
+    const response = await fetch(`${base}${route}`, {
+      ...(body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body }),
+      signal: AbortSignal.timeout(5000),
+    });
+    assert.equal(response.status, 200);
+    return response.text();
+  }
+  const connect = async () => {
+    const opening = await packet('/socket.io/?EIO=4&transport=polling');
+    const route = `/socket.io/?EIO=4&transport=polling&sid=${JSON.parse(opening.slice(1)).sid}`;
+    await packet(route, `40${JSON.stringify({ token: token(a.user) })}`);
+    const connected = await packet(route);
+    const socket = io.of('/').sockets.get(JSON.parse(connected.slice(2)).sid);
+    assert.ok(socket.rooms.has(a.restaurant.id)); assert.equal(socket.rooms.has(b.restaurant.id), false);
+    assert.equal(socket.listenerCount('disconnect'), 1);
+    return { route, socket };
+  };
+  for (let reconnect = 0; reconnect < 2; reconnect++) {
+    const { route, socket } = await connect();
+    io.to(a.restaurant.id).emit('ORDER_UPDATED', { id: `event-${reconnect}` });
+    const delivered = await packet(route);
+    assert.equal(delivered.split(`event-${reconnect}`).length - 1, 1);
+    await packet(route, '1');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(io.of('/').sockets.has(socket.id), false);
+  }
+});
+
+test('WhatsApp: webhook logs no payload and disabled send-test route cannot send', async t => {
+  const logs=[]; t.mock.method(console,'info',row=>logs.push(row));
+  const privateValue='private-webhook-phone-and-message';
+  const event=await request('/api/webhook/whatsapp',{method:'POST',body:{object:'whatsapp_business_account',entry:[{privateValue}]}});
+  assert.equal(event.status,200);assert.equal(event.body,'EVENT_RECEIVED');
+  assert.equal(JSON.stringify(logs).includes(privateValue),false);
+  assert.equal((await request('/api/webhook/whatsapp/send-test',{method:'POST',body:{phone:'911234567890',message:'test'}})).status,404);
+});
+
 test('Tracing: Socket.IO preflight and WebSocket upgrade carry IDs', { timeout: 5000 }, async () => {
   const { sanitizeRequestId } = require('../dist/lib/request-context');
   const res = await fetch(`${base}/socket.io/?EIO=4&transport=polling`, {

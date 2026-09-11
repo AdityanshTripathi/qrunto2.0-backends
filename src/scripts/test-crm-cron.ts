@@ -75,9 +75,13 @@ export async function main() {
   const started = new Promise<void>(resolve => { dispatchStarted = resolve; });
   const pending = new Promise<void>(resolve => { finishDispatch = resolve; });
   prisma.brand.findMany = (async () => [{ id: 'test-brand', name: 'Test' }]) as typeof prisma.brand.findMany;
+  prisma.campaign.updateMany = (async () => ({ count: 0 })) as typeof prisma.campaign.updateMany;
   prisma.campaign.findMany = (async () => [{ id: 'test-campaign', brandId: 'test-brand' }]) as typeof prisma.campaign.findMany;
-  SegmentService.prototype.evaluateAllSegmentsForBrand = (async () => { segments++; }) as typeof SegmentService.prototype.evaluateAllSegmentsForBrand;
-  CampaignService.prototype.sendCampaign = async () => { campaigns++; dispatchStarted!(); await pending; };
+  SegmentService.prototype.evaluateAllSegmentsForBrand = (async () => {
+    segments++;
+    return { processed: 1, failed: 0 };
+  }) as typeof SegmentService.prototype.evaluateAllSegmentsForBrand;
+  CampaignService.prototype.sendCampaign = async () => { campaigns++; dispatchStarted!(); await pending; return true; };
   OccasionService.prototype.checkAndSendOccasionMessages = async () => { occasions++; return []; };
   const now = new Date('2026-09-05T00:00:00Z');
   const originalCommands = sharedRedis.commands;
@@ -130,7 +134,7 @@ export async function main() {
   await assert.rejects(CRMScheduler.runCycle(new Date('2026-09-07T00:01:00Z'), store()));
   assert.equal(lists.get('crm:scheduler:dead')?.length, 1);
   assert.equal(values.has('crm:scheduler:campaigns:attempts'), false);
-  CampaignService.prototype.sendCampaign = async () => {};
+  CampaignService.prototype.sendCampaign = async () => true;
 
   const fault = Object.assign(new Error('rediss://user:private-password@host CRON_SECRET=private-token'), { code: 'ECONNRESET' });
   const checkStage = (stage: string) => (error: unknown) => {
@@ -143,7 +147,7 @@ export async function main() {
   sharedRedis.commands = async () => { throw fault; };
   await assert.rejects(CRMScheduler.runCycle(now), checkStage('redis.connect'));
   sharedRedis.commands = originalCommands;
-  CampaignService.prototype.sendCampaign = async () => {};
+  CampaignService.prototype.sendCampaign = async () => true;
   for (const [method, stage] of [['set', 'redis.lock.acquire'], ['get', 'redis.segments.checkpoint.read'], ['eval', 'redis.lock.release']] as const) {
     values.clear();
     const broken = store();

@@ -152,19 +152,22 @@ export class SegmentService {
   }
 
   // Evaluate all segments for a brand (typically run via cron)
-  async evaluateAllSegmentsForBrand(brandId: string): Promise<void> {
+  async evaluateAllSegmentsForBrand(brandId: string): Promise<{ processed: number; failed: number }> {
     const segments = await prisma.segment.findMany({
       where: { brandId },
       select: { id: true },
     });
 
+    let failed = 0;
     for (const segment of segments) {
       try {
         await this.evaluateSegment(segment.id, brandId);
       } catch (err) {
+        failed++;
         logSafeError('segment.evaluate', err);
       }
     }
+    return { processed: segments.length, failed };
   }
 
   // Fetch segment members list

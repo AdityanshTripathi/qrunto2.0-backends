@@ -651,6 +651,7 @@ model Campaign {
   scheduledAt     DateTime        @map("scheduled_at")
   sentCount       Int             @default(0) @map("sent_count")
   failedCount     Int             @default(0) @map("failed_count")
+  attemptCount    Int             @default(0) @map("attempt_count")
   createdAt       DateTime        @default(now()) @map("created_at")
   updatedAt       DateTime        @updatedAt @map("updated_at")
   logs            CampaignLog[]
@@ -667,12 +668,14 @@ model CampaignLog {
   customerId   String            @map("customer_id")
   status       CampaignLogStatus @default(PENDING)
   errorDetails String?           @map("error_details")
+  attemptCount Int               @default(0) @map("attempt_count")
+  lastAttemptAt DateTime?        @map("last_attempt_at")
   createdAt    DateTime          @default(now()) @map("created_at")
   campaign     Campaign          @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   customer     Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@index([customerId])
-  @@index([campaignId])
+  @@unique([campaignId, customerId])
   @@map("campaign_logs")
 }
 
