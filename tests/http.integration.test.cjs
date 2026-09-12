@@ -5,25 +5,93 @@ const assert = require('node:assert/strict');
 const { once } = require('node:events');
 const jwt = require('jsonwebtoken');
 const { fixtures } = require('./support/fixtures.cjs');
+
+const TRUSTED_ORIGIN = 'https://ordio.in';
+process.env.CORS_ALLOWED_ORIGINS = TRUSTED_ORIGIN;
+
 const { DeductionQueueService } = require('../dist/services/inventory/deduction-queue.service');
 const { DurableDeductionQueue } = require('../dist/services/inventory/durable-deduction-queue');
 const { app, server, io } = require('../dist/server');
 let base, db, a, b;
 const token = user => jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '5m' });
-async function request(route, { method = 'GET', body, auth } = {}) {
+async function request(
+  route,
+  {
+    method = 'GET',
+    body,
+    auth,
+    cookie,
+    origin,
+  } = {},
+) {
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(auth
+      ? { Authorization: `Bearer ${auth}` }
+      : {}),
+    ...(cookie ? { Cookie: cookie } : {}),
+    ...(origin ? { Origin: origin } : {}),
+  };
+
   const response = await fetch(`${base}${route}`, {
-    method, headers: { 'Content-Type': 'application/json', ...(auth ? { Authorization: `Bearer ${auth}` } : {}) },
-    ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(5000),
+    method,
+    headers,
+    ...(body
+      ? { body: JSON.stringify(body) }
+      : {}),
+    signal: AbortSignal.timeout(5000),
   });
-  assert.ok(require('../dist/lib/request-context').sanitizeRequestId(response.headers.get('x-request-id')));
-  const text = await response.text();
+
+  assert.ok(
+    require('../dist/lib/request-context')
+      .sanitizeRequestId(
+        response.headers.get('x-request-id')
+      ),
+  );
+
+  const responseText = await response.text();
   let parsed = null;
-  if (text) {
-    try { parsed = JSON.parse(text); }
-    catch { parsed = text; }
+
+  if (responseText) {
+    try {
+      parsed = JSON.parse(responseText);
+    } catch {
+      parsed = responseText;
+    }
   }
-  return { status: response.status, body: parsed, requestId: response.headers.get('x-request-id') };
+
+  const setCookies =
+    typeof response.headers.getSetCookie === 'function'
+      ? response.headers.getSetCookie()
+      : [
+          response.headers.get('set-cookie'),
+        ].filter(Boolean);
+
+  return {
+    status: response.status,
+    body: parsed,
+    requestId:
+      response.headers.get('x-request-id'),
+    setCookies,
+  };
 }
+
+function refreshCookie(result) {
+  const header = result.setCookies.find(value =>
+    value.startsWith('ordio_refresh='),
+  );
+
+  assert.ok(
+    header,
+    'Expected ordio_refresh Set-Cookie header',
+  );
+
+  assert.match(header, /HttpOnly/i);
+  assert.match(header, /Path=\/api\/auth/i);
+
+  return header.split(';', 1)[0];
+}
+
 async function order(tenant = a, extra = {}) {
   return request(`/api/public/${tenant.restaurant.slug}/orders`, { method: 'POST', body: {
     tableNumber: '1', items: [{ menuItemId: tenant.menu.id, quantity: 2, unitPrice: 0 }], ...extra,
@@ -50,21 +118,202 @@ after(async () => {
   assert.equal(violations.length, 0, 'No external connections or unconfigured DB operations');
 });
 
-test('Auth: register, bcrypt login, refresh and protected profile', async () => {
-  const credentials = { name: 'Test Owner', email: 'owner@example.test', password: 'test-password-only', restaurantName: 'Test Restaurant' };
-  const registered = await request('/api/auth/register', { method: 'POST', body: credentials });
+test('Auth: HttpOnly refresh cookie rotates, rejects replay and revokes on logout', async () => {
+  const credentials = {
+    name: 'Test Owner',
+    email: 'owner@example.test',
+    password: 'test-password-only',
+    restaurantName: 'Test Restaurant',
+  };
+
+  const registered = await request(
+    '/api/auth/register',
+    {
+      method: 'POST',
+      body: credentials,
+    },
+  );
+
   assert.equal(registered.status, 201);
-  assert.ok(typeof registered.body.tokens.accessToken === 'string');
-  assert.ok(db.data.users.find(u => u.email === credentials.email).password !== credentials.password);
-  const login = await request('/api/auth/login', { method: 'POST', body: credentials });
+
+  assert.ok(
+    typeof registered.body.tokens.accessToken
+      === 'string',
+  );
+
+  assert.equal(
+    Object.hasOwn(
+      registered.body.tokens,
+      'refreshToken',
+    ),
+    false,
+  );
+
+  refreshCookie(registered);
+
+  assert.ok(
+    db.data.users.find(
+      user => user.email === credentials.email,
+    ).password !== credentials.password,
+  );
+
+  const login = await request(
+    '/api/auth/login',
+    {
+      method: 'POST',
+      body: credentials,
+    },
+  );
+
   assert.equal(login.status, 200);
-  const profile = await request('/api/auth/me', { auth: login.body.tokens.accessToken });
+
+  assert.ok(
+    typeof login.body.tokens.accessToken
+      === 'string',
+  );
+
+  assert.equal(
+    Object.hasOwn(
+      login.body.tokens,
+      'refreshToken',
+    ),
+    false,
+  );
+
+  const loginCookie = refreshCookie(login);
+
+  const profile = await request(
+    '/api/auth/me',
+    {
+      auth: login.body.tokens.accessToken,
+    },
+  );
+
   assert.equal(profile.status, 200);
-  assert.equal(profile.body.user.email, credentials.email);
-  assert.equal(Object.hasOwn(profile.body.user, 'password'), false);
-  assert.equal((await request('/api/auth/refresh', { method: 'POST', body: { refreshToken: login.body.tokens.refreshToken } })).status, 200);
-  assert.equal((await request('/api/auth/register', { method: 'POST', body: credentials })).status, 400);
-  assert.equal((await request('/api/auth/login', { method: 'POST', body: { ...credentials, password: 'wrong' } })).status, 401);
+
+  assert.equal(
+    profile.body.user.email,
+    credentials.email,
+  );
+
+  assert.equal(
+    Object.hasOwn(
+      profile.body.user,
+      'password',
+    ),
+    false,
+  );
+
+  const refreshed = await request(
+    '/api/auth/refresh',
+    {
+      method: 'POST',
+      cookie: loginCookie,
+      origin: TRUSTED_ORIGIN,
+    },
+  );
+
+  assert.equal(refreshed.status, 200);
+
+  assert.ok(
+    typeof refreshed.body.accessToken
+      === 'string',
+  );
+
+  assert.equal(
+    Object.hasOwn(
+      refreshed.body,
+      'refreshToken',
+    ),
+    false,
+  );
+
+  const rotatedCookie =
+    refreshCookie(refreshed);
+
+  assert.notEqual(
+    rotatedCookie,
+    loginCookie,
+  );
+
+  const replay = await request(
+    '/api/auth/refresh',
+    {
+      method: 'POST',
+      cookie: loginCookie,
+      origin: TRUSTED_ORIGIN,
+    },
+  );
+
+  assert.equal(replay.status, 401);
+
+  const logout = await request(
+    '/api/auth/logout',
+    {
+      method: 'POST',
+      cookie: rotatedCookie,
+      origin: TRUSTED_ORIGIN,
+    },
+  );
+
+  assert.equal(logout.status, 200);
+
+  const clearedCookie =
+    logout.setCookies.find(value =>
+      value.startsWith('ordio_refresh='),
+    );
+
+  assert.ok(clearedCookie);
+
+  assert.match(
+    clearedCookie,
+    /ordio_refresh=;/i,
+  );
+
+  const afterLogout = await request(
+    '/api/auth/refresh',
+    {
+      method: 'POST',
+      cookie: rotatedCookie,
+      origin: TRUSTED_ORIGIN,
+    },
+  );
+
+  assert.equal(afterLogout.status, 401);
+
+  const untrusted = await request(
+    '/api/auth/refresh',
+    {
+      method: 'POST',
+      cookie: rotatedCookie,
+      origin: 'https://evil.example',
+    },
+  );
+
+  assert.equal(untrusted.status, 403);
+
+  assert.equal(
+    (
+      await request('/api/auth/register', {
+        method: 'POST',
+        body: credentials,
+      })
+    ).status,
+    400,
+  );
+
+  assert.equal(
+    (
+      await request('/api/auth/login', {
+        method: 'POST',
+        body: {
+          ...credentials,
+          password: 'wrong',
+        },
+      })
+    ).status,
+    401,
+  );
 });
 
 test('Auth: missing, invalid, expired, wrong-key and disabled-user tokens rejected', async () => {
@@ -72,7 +321,15 @@ test('Auth: missing, invalid, expired, wrong-key and disabled-user tokens reject
   for (const auth of candidates) assert.equal((await request('/api/orders', { auth })).status, 401);
   a.user.isActive = false;
   assert.equal((await request('/api/orders', { auth: token(a.user) })).status, 401);
-  assert.equal((await request('/api/auth/refresh', { method: 'POST', body: { refreshToken: 'invalid' } })).status, 401);
+  assert.equal(
+    (
+      await request('/api/auth/refresh', {
+        method: 'POST',
+        origin: TRUSTED_ORIGIN,
+      })
+    ).status,
+    401,
+  );
 });
 
 test('Auth: login and registration limits return 429 deterministically', async () => {

@@ -29,7 +29,12 @@ async function main() {
     });
     assert.equal(response.status, 204);
     assert.equal(response.headers.get('access-control-allow-origin'), 'https://ordio.in');
-    assert.equal(response.headers.get('access-control-allow-credentials'), null);
+    assert.equal(
+      response.headers.get(
+        'access-control-allow-credentials',
+      ),
+      'true',
+    );
     assert.equal(waits, startupWaits, 'Preflight must not enter dependency middleware');
     console.log(`PASS preflight with stalled Redis: ${Math.round(performance.now() - start)}ms`);
     const rejected = await fetch(url, { method: 'OPTIONS',

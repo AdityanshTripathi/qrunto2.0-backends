@@ -5,6 +5,12 @@ import { UserRepository } from '../repositories/user.repository';
 import { prisma } from '../lib/prisma';
 import { restaurantTimezone, timezone } from '../lib/timezone';
 import { logSafeError } from '../lib/safe-error';
+import {
+  clearRefreshCookie,
+  hasTrustedAuthOrigin,
+  readRefreshCookie,
+  setRefreshCookie,
+} from '../lib/auth-cookie';
 
 const authService = new AuthService();
 const userRepository = new UserRepository();
@@ -22,10 +28,6 @@ const LoginSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 });
 
-const RefreshSchema = z.object({
-  refreshToken: z.string().min(1, 'Refresh token is required'),
-});
-
 export class AuthController {
   async register(req: Request, res: Response): Promise<void> {
     try {
@@ -38,7 +40,20 @@ export class AuthController {
 
       // 2. Call service
       const result = await authService.register(validationResult.data);
-      res.status(201).json(result);
+
+      setRefreshCookie(
+        res,
+        result.tokens.refreshToken,
+        result.tokens.refreshExpiresAt,
+      );
+      res.setHeader('Cache-Control', 'no-store');
+
+      res.status(201).json({
+        user: result.user,
+        tokens: {
+          accessToken: result.tokens.accessToken,
+        },
+      });
     } catch (error) {
       if (error instanceof Error && error.message === 'Email is already registered') {
         res.status(400).json({ error: error.message });
@@ -60,7 +75,20 @@ export class AuthController {
 
       // 2. Call service
       const result = await authService.login(validationResult.data);
-      res.status(200).json(result);
+
+      setRefreshCookie(
+        res,
+        result.tokens.refreshToken,
+        result.tokens.refreshExpiresAt,
+      );
+      res.setHeader('Cache-Control', 'no-store');
+
+      res.status(200).json({
+        user: result.user,
+        tokens: {
+          accessToken: result.tokens.accessToken,
+        },
+      });
     } catch (error) {
       if (error instanceof Error && ['Invalid email or password', 'Access denied: Waiter account is disabled'].includes(error.message)) {
         res.status(401).json({ error: error.message });
@@ -73,30 +101,76 @@ export class AuthController {
 
   async refresh(req: Request, res: Response): Promise<void> {
     try {
-      // 1. Validate request body
-      const validationResult = RefreshSchema.safeParse(req.body);
-      if (!validationResult.success) {
-        res.status(400).json({ errors: validationResult.error.flatten().fieldErrors });
+      if (!hasTrustedAuthOrigin(req)) {
+        res.status(403).json({ error: 'Untrusted request origin' });
         return;
       }
 
-      // 2. Call service
-      const result = await authService.refresh(validationResult.data.refreshToken);
-      res.status(200).json(result);
+      const refreshToken = readRefreshCookie(req);
+      if (!refreshToken) {
+        clearRefreshCookie(res);
+        res.status(401).json({
+          error: 'Invalid or expired refresh token',
+        });
+        return;
+      }
+
+      const result = await authService.refresh(refreshToken);
+
+      setRefreshCookie(
+        res,
+        result.refreshToken,
+        result.refreshExpiresAt,
+      );
+      res.setHeader('Cache-Control', 'no-store');
+
+      res.status(200).json({
+        accessToken: result.accessToken,
+      });
     } catch (error) {
-      if (error instanceof Error && error.message === 'Invalid or expired refresh token') {
+      if (
+        error instanceof Error &&
+        error.message === 'Invalid or expired refresh token'
+      ) {
+        clearRefreshCookie(res);
         res.status(401).json({ error: error.message });
         return;
       }
+
       logSafeError('refresh', error, 'auth');
-      res.status(500).json({ error: 'Unable to refresh session' });
+      res.status(500).json({
+        error: 'Unable to refresh session',
+      });
     }
   }
 
   async logout(req: Request, res: Response): Promise<void> {
-    // Stateless JWT logout is handled client-side by deleting the tokens.
-    // We just return a success message.
-    res.status(200).json({ message: 'Successfully logged out' });
+    try {
+      if (!hasTrustedAuthOrigin(req)) {
+        res.status(403).json({ error: 'Untrusted request origin' });
+        return;
+      }
+
+      const refreshToken = readRefreshCookie(req);
+
+      if (refreshToken) {
+        await authService.revokeRefreshToken(refreshToken);
+      }
+
+      clearRefreshCookie(res);
+      res.setHeader('Cache-Control', 'no-store');
+
+      res.status(200).json({
+        message: 'Successfully logged out',
+      });
+    } catch (error) {
+      clearRefreshCookie(res);
+      logSafeError('logout', error, 'auth');
+
+      res.status(500).json({
+        error: 'Unable to complete logout',
+      });
+    }
   }
 
   async me(req: Request, res: Response): Promise<void> {

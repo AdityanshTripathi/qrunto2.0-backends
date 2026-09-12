@@ -1,23 +1,24 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
+import { createHash, randomBytes } from 'node:crypto';
 import { UserRepository } from '../repositories/user.repository';
 import { UserRole, Restaurant } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 
 const userRepository = new UserRepository();
 
-const requireSecret = (name: 'JWT_SECRET' | 'JWT_REFRESH_SECRET'): string => {
+const requireSecret = (name: 'JWT_SECRET'): string => {
   const value = process.env[name];
   if (!value) throw new Error(`${name} environment variable is required`);
   return value;
 };
 
 const JWT_SECRET = requireSecret('JWT_SECRET');
-const JWT_REFRESH_SECRET = requireSecret('JWT_REFRESH_SECRET');
 
 export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
+  refreshExpiresAt: Date;
 }
 
 export interface UserResponse {
@@ -43,12 +44,60 @@ export class AuthService {
     );
   }
 
-  private generateRefreshToken(user: { id: string }): string {
-    return jwt.sign(
-      { id: user.id },
-      JWT_REFRESH_SECRET,
-      { expiresIn: '7d' }
-    );
+  private static readonly REFRESH_SESSION_LIFETIME_MS =
+    7 * 24 * 60 * 60 * 1000;
+
+  private generateOpaqueRefreshToken(): string {
+    return randomBytes(32).toString('base64url');
+  }
+
+  private hashRefreshToken(refreshToken: string): string {
+    return createHash('sha256')
+      .update(refreshToken, 'utf8')
+      .digest('hex');
+  }
+
+  private async createRefreshSession(
+    subject: { userId?: string; waiterId?: string },
+    expiresAt = new Date(
+      Date.now() + AuthService.REFRESH_SESSION_LIFETIME_MS
+    ),
+  ): Promise<{ refreshToken: string; expiresAt: Date }> {
+    const hasUser = Boolean(subject.userId);
+    const hasWaiter = Boolean(subject.waiterId);
+
+    if (hasUser === hasWaiter) {
+      throw new Error(
+        'Refresh session must belong to exactly one account'
+      );
+    }
+
+    const refreshToken = this.generateOpaqueRefreshToken();
+
+    await prisma.authRefreshSession.create({
+      data: {
+        tokenHash: this.hashRefreshToken(refreshToken),
+        userId: subject.userId ?? null,
+        waiterId: subject.waiterId ?? null,
+        expiresAt,
+      },
+    });
+
+    return { refreshToken, expiresAt };
+  }
+
+  async revokeRefreshToken(refreshToken: string): Promise<void> {
+    if (!refreshToken) return;
+
+    await prisma.authRefreshSession.updateMany({
+      where: {
+        tokenHash: this.hashRefreshToken(refreshToken),
+        revokedAt: null,
+      },
+      data: {
+        revokedAt: new Date(),
+      },
+    });
   }
 
   private slugify(text: string): string {
@@ -119,7 +168,8 @@ export class AuthService {
       role: userWithRestaurants.role,
       restaurantId: userWithRestaurants.restaurants[0]?.id,
     });
-    const refreshToken = this.generateRefreshToken(user);
+    const refreshSession = await this.createRefreshSession({ userId: user.id });
+    const refreshToken = refreshSession.refreshToken;
 
     return {
       user: {
@@ -129,7 +179,11 @@ export class AuthService {
         role: user.role,
         restaurants: [restaurant],
       },
-      tokens: { accessToken, refreshToken },
+      tokens: {
+        accessToken,
+        refreshToken,
+        refreshExpiresAt: refreshSession.expiresAt,
+      },
     };
   }
 
@@ -153,7 +207,8 @@ export class AuthService {
         role: user.role,
         restaurantId: user.restaurantId || user.restaurants[0]?.id,
       });
-      const refreshToken = this.generateRefreshToken(user);
+      const refreshSession = await this.createRefreshSession({ userId: user.id });
+    const refreshToken = refreshSession.refreshToken;
 
       return {
         user: {
@@ -163,7 +218,11 @@ export class AuthService {
           role: user.role,
           restaurants: user.restaurants,
         },
-        tokens: { accessToken, refreshToken },
+        tokens: {
+        accessToken,
+        refreshToken,
+        refreshExpiresAt: refreshSession.expiresAt,
+      },
       };
     }
 
@@ -195,7 +254,8 @@ export class AuthService {
       role: 'WAITER',
       restaurantId: waiter.restaurantId,
     });
-    const refreshToken = this.generateRefreshToken(waiter);
+    const refreshSession = await this.createRefreshSession({ waiterId: waiter.id });
+    const refreshToken = refreshSession.refreshToken;
 
     return {
       user: {
@@ -213,60 +273,116 @@ export class AuthService {
           },
         ],
       },
-      tokens: { accessToken, refreshToken },
+      tokens: {
+        accessToken,
+        refreshToken,
+        refreshExpiresAt: refreshSession.expiresAt,
+      },
     };
   }
 
-  async refresh(refreshToken: string): Promise<{ accessToken: string }> {
-    try {
-      // 1. Verify Refresh Token
-      const decoded = jwt.verify(refreshToken, JWT_REFRESH_SECRET) as unknown as { id: string };
-      
-      // 2. Find User in User table first
-      const user = await userRepository.findById(decoded.id);
-      if (user) {
-        // Fetch restaurants for token payload
-        const fullUser = await userRepository.findByEmail(user.email);
-        if (!fullUser) {
-          throw new Error('User not found');
-        }
-        const accessToken = this.generateAccessToken({
-          id: fullUser.id,
-          email: fullUser.email,
-          role: fullUser.role,
-          restaurantId: fullUser.restaurantId || fullUser.restaurants[0]?.id,
-        });
-        return { accessToken };
-      }
+  async refresh(
+    refreshToken: string,
+  ): Promise<{
+    accessToken: string;
+    refreshToken: string;
+    refreshExpiresAt: Date;
+  }> {
+    const invalidRefresh = () =>
+      new Error('Invalid or expired refresh token');
 
-      // 3. Find Waiter in Waiter table
+    const tokenHash = this.hashRefreshToken(refreshToken);
+    const now = new Date();
+
+    const session = await prisma.authRefreshSession.findUnique({
+      where: { tokenHash },
+    });
+
+    if (
+      !session ||
+      session.revokedAt ||
+      session.expiresAt <= now
+    ) {
+      throw invalidRefresh();
+    }
+
+    let accessToken: string;
+
+    if (session.userId) {
+      const user = await userRepository.findById(session.userId);
+      if (!user) throw invalidRefresh();
+
+      const fullUser = await userRepository.findByEmail(user.email);
+      if (!fullUser) throw invalidRefresh();
+
+      accessToken = this.generateAccessToken({
+        id: fullUser.id,
+        email: fullUser.email,
+        role: fullUser.role,
+        restaurantId:
+          fullUser.restaurantId ||
+          fullUser.restaurants[0]?.id,
+      });
+    } else if (session.waiterId) {
       const waiter = await prisma.waiter.findUnique({
-        where: { id: decoded.id },
+        where: { id: session.waiterId },
         include: { restaurant: true },
       });
 
-      if (waiter) {
-        if (!waiter.isActive) {
-          throw new Error('Access denied: Waiter account is disabled');
-        }
-        const accessToken = this.generateAccessToken({
-          id: waiter.id,
-          email: waiter.email,
-          role: 'WAITER',
-          restaurantId: waiter.restaurantId,
-        });
-        return { accessToken };
+      if (!waiter || !waiter.isActive) {
+        throw invalidRefresh();
       }
 
-      throw new Error('User/Waiter not found');
-    } catch (error) {
-      const tokenFailure = error instanceof jwt.JsonWebTokenError ||
-        error instanceof jwt.TokenExpiredError || error instanceof jwt.NotBeforeError;
-      const accountFailure = error instanceof Error && [
-        'User not found', 'User/Waiter not found', 'Access denied: Waiter account is disabled',
-      ].includes(error.message);
-      if (tokenFailure || accountFailure) throw new Error('Invalid or expired refresh token');
-      throw error;
+      accessToken = this.generateAccessToken({
+        id: waiter.id,
+        email: waiter.email,
+        role: 'WAITER',
+        restaurantId: waiter.restaurantId,
+      });
+    } else {
+      throw invalidRefresh();
     }
+
+    const nextRefreshToken =
+      this.generateOpaqueRefreshToken();
+
+    const nextTokenHash =
+      this.hashRefreshToken(nextRefreshToken);
+
+    await prisma.$transaction(async (tx) => {
+      const revoked =
+        await tx.authRefreshSession.updateMany({
+          where: {
+            id: session.id,
+            tokenHash,
+            revokedAt: null,
+            expiresAt: { gt: now },
+          },
+          data: {
+            revokedAt: now,
+          },
+        });
+
+      // Only one concurrent request may consume this token.
+      if (revoked.count !== 1) {
+        throw invalidRefresh();
+      }
+
+      await tx.authRefreshSession.create({
+        data: {
+          tokenHash: nextTokenHash,
+          userId: session.userId,
+          waiterId: session.waiterId,
+          expiresAt: session.expiresAt,
+        },
+      });
+    });
+
+    return {
+      accessToken,
+      refreshToken: nextRefreshToken,
+      refreshExpiresAt: session.expiresAt,
+    };
   }
+
 }

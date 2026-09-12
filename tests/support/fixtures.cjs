@@ -5,7 +5,17 @@ const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 // Intentionally small Prisma boundary double, not a database/RLS emulator.
 function fixtures() {
   let sequence = 100;
-  const data = { users: [], restaurants: [], tables: [], menu: [], orders: [], payments: [], transactions: [], invoices: [] };
+  const data = {
+    users: [],
+    restaurants: [],
+    tables: [],
+    menu: [],
+    orders: [],
+    payments: [],
+    transactions: [],
+    invoices: [],
+    authRefreshSessions: [],
+  };
   const queries = [];
   const match = (row, where = {}) => Object.entries(where).every(([key, value]) => {
     if (value && typeof value === 'object' && !(value instanceof Date)) {
@@ -90,6 +100,66 @@ function fixtures() {
   prisma.payment.findFirst = async ({ where }) => copy(data.payments.find(row => match(row, where)));
   prisma.payment.findMany = async ({ where }) => data.payments.filter(row => match(row, where)).map(copy);
   prisma.transaction.create = async ({ data: values }) => create(data.transactions, values);
+
+  prisma.authRefreshSession.create = async ({ data: values }) =>
+    create(data.authRefreshSessions, {
+      revokedAt: null,
+      createdAt: new Date(),
+      ...values,
+    });
+
+  prisma.authRefreshSession.findUnique = async ({ where }) =>
+    copy(
+      data.authRefreshSessions.find(row =>
+        Object.entries(where).every(
+          ([key, value]) => row[key] === value
+        )
+      )
+    );
+
+  prisma.authRefreshSession.updateMany = async ({
+    where = {},
+    data: values,
+  }) => {
+    const rows = data.authRefreshSessions.filter(row => {
+      if (
+        Object.hasOwn(where, 'id') &&
+        row.id !== where.id
+      ) {
+        return false;
+      }
+
+      if (
+        Object.hasOwn(where, 'tokenHash') &&
+        row.tokenHash !== where.tokenHash
+      ) {
+        return false;
+      }
+
+      if (
+        Object.hasOwn(where, 'revokedAt') &&
+        row.revokedAt !== where.revokedAt
+      ) {
+        return false;
+      }
+
+      if (
+        where.expiresAt?.gt &&
+        !(row.expiresAt > where.expiresAt.gt)
+      ) {
+        return false;
+      }
+
+      return true;
+    });
+
+    rows.forEach(row => Object.assign(row, values));
+
+    return {
+      count: rows.length,
+    };
+  };
+
   prisma.$transaction = async callback => {
     const snapshot = structuredClone(data);
     try { return await callback(prisma); }

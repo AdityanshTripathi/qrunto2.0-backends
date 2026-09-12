@@ -21,7 +21,7 @@ assert.throws(() => buildAllowedOrigins({ NODE_ENV: 'production' }));
 assert.throws(() => buildAllowedOrigins({ NODE_ENV: 'production', FRONTEND_URL: '*' }));
 
 const options = createCorsOptions({ NODE_ENV: 'production', FRONTEND_URL: trustedOrigin });
-assert.equal(options.credentials, false);
+assert.equal(options.credentials, true);
 assert.ok(options.allowedHeaders?.includes('Authorization'));
 assert.ok(options.allowedHeaders?.includes('Idempotency-Key'));
 

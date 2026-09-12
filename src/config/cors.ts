@@ -55,7 +55,7 @@ export const createCorsOptions = (env: CorsEnvironment): CorsOptions => {
     methods: ['GET', 'HEAD', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Authorization', 'Content-Type', 'Idempotency-Key', 'X-Request-ID'],
     exposedHeaders: ['X-Request-ID'],
-    credentials: false,
+    credentials: true,
   };
 };
 
