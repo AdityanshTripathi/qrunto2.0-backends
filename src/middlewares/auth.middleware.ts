@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { createHash } from 'node:crypto';
 import { UserRole } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 
@@ -18,6 +19,7 @@ export interface DecodedUser {
 
 export interface AuthenticatedRequest extends Request {
   user?: DecodedUser;
+  accessTokenFingerprint?: string;
 }
 
 export const resolveAccessToken = async (token: string): Promise<DecodedUser> => {
@@ -98,6 +100,9 @@ export const authenticate = async (req: AuthenticatedRequest, res: Response, nex
 
   try {
     req.user = await resolveAccessToken(token);
+    // Bind short-lived security proofs to this exact access token without
+    // retaining or embedding the bearer token itself.
+    req.accessTokenFingerprint = createHash('sha256').update(token, 'utf8').digest('hex');
     next();
   } catch (err) {
     res.status(401).json({ error: 'Invalid or expired authorization token' });
@@ -123,5 +128,6 @@ export const requireRoles = (roles: (UserRole | 'WAITER')[]) => {
 declare module 'express-serve-static-core' {
   interface Request {
     user?: DecodedUser;
+    accessTokenFingerprint?: string;
   }
 }

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import bcrypt from 'bcrypt';
 import { prisma } from '../lib/prisma';
 import { PasscodeResetStatus } from '@prisma/client';
+import { issueSecurityProof, isSecurityProofScope } from '../services/security-proof.service';
 
 // Validation schemas
 const SetPasscodeSchema = z.object({
@@ -12,6 +13,7 @@ const SetPasscodeSchema = z.object({
 
 const VerifyPasscodeSchema = z.object({
   passcode: z.string(),
+  scope: z.string(),
 });
 
 export class PasscodeController {
@@ -206,7 +208,11 @@ export class PasscodeController {
         return;
       }
 
-      const { passcode } = validation.data;
+      const { passcode, scope } = validation.data;
+      if (!isSecurityProofScope(scope)) {
+        res.status(400).json({ error: 'Invalid protected scope.' });
+        return;
+      }
 
       const settings = await prisma.restaurantSetting.findUnique({
         where: { restaurantId },
@@ -223,7 +229,19 @@ export class PasscodeController {
         return;
       }
 
-      res.status(200).json({ success: true, message: 'Passcode verified successfully!' });
+      if (!req.accessTokenFingerprint) {
+        res.status(401).json({ error: 'Authentication required' });
+        return;
+      }
+
+      const { proof, expiresAt } = issueSecurityProof({
+        userId: req.user.id,
+        restaurantId,
+        scope,
+        accessTokenFingerprint: req.accessTokenFingerprint,
+      });
+      res.setHeader('Cache-Control', 'no-store');
+      res.status(200).json({ success: true, proof, expiresAt });
     } catch (err: any) {
       res.status(500).json({ error: 'Internal server error' });
     }
