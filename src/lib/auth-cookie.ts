@@ -7,7 +7,9 @@ export const REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export function refreshCookieOptions(
   env: NodeJS.ProcessEnv = process.env,
 ): CookieOptions {
-  const production = env.NODE_ENV === 'production';
+  const production =
+    env.NODE_ENV === 'production' ||
+    env.VERCEL_ENV === 'production';
 
   return {
     httpOnly: true,
