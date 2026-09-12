@@ -4,10 +4,8 @@ const { test, before, beforeEach, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { once } = require('node:events');
 const jwt = require('jsonwebtoken');
-const { createHash } = require('node:crypto');
 const { fixtures } = require('./support/fixtures.cjs');
 const { analyticsDates } = require('../dist/services/analytics-detail.service');
-const { issueSecurityProof } = require('../dist/services/security-proof.service');
 const { server, io } = require('../dist/server');
 let base, db, a, b, rows, calls;
 const date = value => new Date(value);
@@ -48,14 +46,8 @@ beforeEach(() => {
 });
 async function request(endpoint, query = 'startDate=2026-09-01&endDate=2026-09-01', user = a.user) {
   const accessToken = user && jwt.sign({ id: user.id, restaurantId: b.restaurant.id }, process.env.JWT_SECRET);
-  const proof = user && issueSecurityProof({
-    userId: user.id,
-    restaurantId: user.restaurantId,
-    scope: 'analytics',
-    accessTokenFingerprint: createHash('sha256').update(accessToken, 'utf8').digest('hex'),
-  }).proof;
   const response = await fetch(`${base}/${endpoint}?${query}`, {
-    headers: user ? { Authorization: `Bearer ${accessToken}`, 'X-Security-Proof': proof } : {},
+    headers: user ? { Authorization: `Bearer ${accessToken}` } : {},
     signal: AbortSignal.timeout(5000),
   });
   return { status: response.status, body: await response.json() };

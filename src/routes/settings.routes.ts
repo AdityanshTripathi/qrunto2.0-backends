@@ -1,27 +1,16 @@
 import { Router } from 'express';
 import { SettingsController } from '../controllers/settings.controller';
-import { PasscodeController } from '../controllers/passcode.controller';
-import { authenticate, requireRoles } from '../middlewares/auth.middleware';
-import { passcodeVerificationRateLimiter } from '../middlewares/auth-rate-limit.middleware';
-import { requireSecurityProof } from '../middlewares/security-proof.middleware';
+import { authenticate, requireRestaurantContext, requireRoles } from '../middlewares/auth.middleware';
 import { UserRole } from '@prisma/client';
 
 const router = Router();
 const settingsController = new SettingsController();
-const passcodeController = new PasscodeController();
 
 // Require authentication for settings endpoints
-router.use(authenticate, requireRoles([UserRole.RESTAURANT_OWNER, UserRole.SUPER_ADMIN]));
+router.use(authenticate, requireRoles([UserRole.RESTAURANT_OWNER, UserRole.SUPER_ADMIN]), requireRestaurantContext);
 
-router.get('/', requireSecurityProof('settings'), (req, res) => settingsController.getSettings(req, res));
-router.patch('/', requireSecurityProof('settings'), (req, res) => settingsController.updateSettings(req, res));
-
-// Passcode endpoints
-router.get('/passcode/status', (req, res) => passcodeController.getPasscodeStatus(req, res));
-router.post('/passcode/set', (req, res) => passcodeController.setPasscode(req, res));
-router.post('/passcode/toggle', requireSecurityProof('settings'), (req, res) => passcodeController.togglePasscode(req, res));
-router.post('/passcode/verify', passcodeVerificationRateLimiter, (req, res) => passcodeController.verifyPasscode(req, res));
-router.post('/passcode/reset-request', (req, res) => passcodeController.createResetRequest(req, res));
+router.get('/', (req, res) => settingsController.getSettings(req, res));
+router.patch('/', (req, res) => settingsController.updateSettings(req, res));
 
 export default router;
 

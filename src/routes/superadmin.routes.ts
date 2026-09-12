@@ -34,10 +34,6 @@ router.delete('/license-codes/:id', (req, res) => superAdminController.deleteLic
 // Transactions Logs
 router.get('/transactions', (req, res) => superAdminController.getTransactions(req, res));
 
-// Passcode Reset Requests
-router.get('/passcode-resets', (req, res) => superAdminController.getPasscodeResets(req, res));
-router.patch('/passcode-resets/:id/action', (req, res) => superAdminController.handlePasscodeReset(req, res));
-
 // WhatsApp Manager routes
 router.post('/whatsapp/send-message', async (req, res) => {
   try {

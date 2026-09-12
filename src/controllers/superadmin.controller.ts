@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { decimal } from '../lib/money';
 import jwt from 'jsonwebtoken';
-import { UserRole, PaymentStatus, PasscodeResetStatus, SubscriptionStatus } from '@prisma/client';
+import { UserRole, PaymentStatus, SubscriptionStatus } from '@prisma/client';
 
 const configuredJwtSecret = process.env.JWT_SECRET;
 if (!configuredJwtSecret) throw new Error('JWT_SECRET environment variable is required');
@@ -480,77 +480,6 @@ export class SuperAdminController {
       });
 
       res.status(200).json({ message: `License code ${code.code} deleted successfully!` });
-    } catch (err: any) {
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  }
-
-  // ─── GET /api/superadmin/passcode-resets ──────────────────────────────────
-  async getPasscodeResets(req: Request, res: Response): Promise<void> {
-    try {
-      const requests = await prisma.passcodeResetRequest.findMany({
-        include: {
-          restaurant: {
-            select: {
-              name: true,
-              slug: true,
-              owner: {
-                select: {
-                  name: true,
-                  email: true,
-                }
-              }
-            }
-          }
-        },
-        orderBy: { requestedAt: 'desc' },
-      });
-
-      res.status(200).json({ requests });
-    } catch (err: any) {
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  }
-
-  // ─── PATCH /api/superadmin/passcode-resets/:id/action ───────────────────────
-  async handlePasscodeReset(req: Request, res: Response): Promise<void> {
-    try {
-      const id = req.params['id'] as string;
-      const { action } = req.body; // 'approve' | 'reject'
-
-      if (action !== 'approve' && action !== 'reject') {
-        res.status(400).json({ error: "Invalid action. Must be 'approve' or 'reject'." });
-        return;
-      }
-
-      const request = await prisma.passcodeResetRequest.findUnique({
-        where: { id },
-      });
-
-      if (!request) {
-        res.status(404).json({ error: 'Passcode reset request not found.' });
-        return;
-      }
-
-      if (request.status !== PasscodeResetStatus.PENDING) {
-        res.status(400).json({ error: `Cannot process request in ${request.status} status.` });
-        return;
-      }
-
-      const newStatus = action === 'approve' ? PasscodeResetStatus.APPROVED : PasscodeResetStatus.REJECTED;
-
-      const updated = await prisma.passcodeResetRequest.update({
-        where: { id },
-        data: {
-          status: newStatus,
-          processedAt: new Date(),
-        },
-      });
-
-      res.status(200).json({
-        message: `Passcode reset request has been ${action === 'approve' ? 'approved' : 'rejected'} successfully!`,
-        request: updated,
-      });
     } catch (err: any) {
       res.status(500).json({ error: 'Internal server error' });
     }
