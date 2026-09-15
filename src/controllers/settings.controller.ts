@@ -16,6 +16,7 @@ const UpdateSettingsSchema = z.object({
 
   // Restaurant Settings
   currency: z.string().min(1, 'Currency is required').optional(),
+  gstEnabled: z.boolean().optional(),
   taxPercentage: z.number().min(0, 'Tax percentage cannot be negative').max(100, 'Tax percentage cannot exceed 100').optional(),
   businessHours: z.any().optional(),
   themeSettings: z.any().optional(),
@@ -53,6 +54,7 @@ export class SettingsController {
           data: {
             restaurantId: restaurant.id,
             currency: 'INR',
+            gstEnabled: true,
             taxPercentage: 0,
           },
         });
@@ -112,6 +114,7 @@ export class SettingsController {
 
       const settingsFields: Record<string, any> = {};
       if (data.currency !== undefined) settingsFields.currency = data.currency;
+      if (data.gstEnabled !== undefined) settingsFields.gstEnabled = data.gstEnabled;
       if (data.taxPercentage !== undefined) settingsFields.taxPercentage = data.taxPercentage;
       if (data.businessHours !== undefined) settingsFields.businessHours = data.businessHours;
       if (data.themeSettings !== undefined) settingsFields.themeSettings = data.themeSettings;
@@ -132,6 +135,7 @@ export class SettingsController {
           create: {
             restaurantId,
             currency: settingsFields['currency'] ?? 'INR',
+            gstEnabled: settingsFields['gstEnabled'] ?? true,
             taxPercentage: settingsFields['taxPercentage'] ?? 0,
             businessHours: settingsFields['businessHours'] ?? null,
             themeSettings: settingsFields['themeSettings'] ?? null,

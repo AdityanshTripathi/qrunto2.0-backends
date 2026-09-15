@@ -43,6 +43,7 @@ export class UserRepository {
         data: {
           restaurantId: restaurant.id,
           currency: 'INR',
+          gstEnabled: true,
           taxPercentage: 0,
         },
       });

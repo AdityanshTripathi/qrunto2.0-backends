@@ -96,7 +96,7 @@ export class PublicController {
           logoUrl: true,
           isActive: true,
           settings: {
-            select: { currency: true, taxPercentage: true },
+            select: { currency: true, gstEnabled: true, taxPercentage: true },
           },
         },
       });
@@ -141,6 +141,7 @@ export class PublicController {
         },
         settings: {
           currency: restaurant.settings?.currency ?? 'INR',
+          gstEnabled: restaurant.settings?.gstEnabled ?? true,
           taxPercentage: restaurant.settings?.taxPercentage ?? 0,
         },
         categories,
@@ -292,7 +293,9 @@ export class PublicController {
       }
 
       // 5. Calculate totals
-      const taxPercentage = restaurant.settings?.taxPercentage ?? 0;
+      const taxPercentage = restaurant.settings?.gstEnabled === false
+        ? 0
+        : restaurant.settings?.taxPercentage ?? 0;
       let newSubtotal = 0;
       const orderItemsData: {
         menuItemId: string;

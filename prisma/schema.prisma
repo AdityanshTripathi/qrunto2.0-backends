@@ -352,6 +352,7 @@ model RestaurantSetting {
   id                String     @id @default(uuid())
   restaurantId      String     @unique @map("restaurant_id")
   currency          String     @default("INR")
+  gstEnabled        Boolean    @default(true) @map("gst_enabled")
   taxPercentage     Float      @default(0) @map("tax_percentage")
   businessHours     Json?      @map("business_hours")
   themeSettings     Json?      @map("theme_settings")
