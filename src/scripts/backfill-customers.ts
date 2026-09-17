@@ -74,9 +74,10 @@ async function run() {
         // Check if customer already exists for this brand
         let customer = await prisma.customer.findUnique({
           where: {
-            brandId_phone: {
+            brandId_phone_crmGeneration: {
               brandId: brandId!,
               phone: phone,
+              crmGeneration: 1,
             },
           },
         });

@@ -9,6 +9,8 @@ import { ReferralService } from '../services/crm/referral.service';
 import { resolveAccessToken } from '../middlewares/auth.middleware';
 import { createHash } from 'node:crypto';
 import { logSafeError } from '../lib/safe-error';
+import { ConsentService } from '../services/crm/consent.service';
+import { PhoneVerificationService, normalizeGuestPhone } from '../services/crm/phone-verification.service';
 
 const referralService = new ReferralService();
 
@@ -26,8 +28,10 @@ const PlaceOrderSchema = z.object({
   notes: z.string().max(500).optional(),
   customerName: z.string().max(100).optional(),
   customerPhone: z.string().max(15).optional(),
+  whatsappMarketingOptIn: z.boolean().optional(),
   existingOrderId: z.string().uuid('Invalid order ID').optional(),
   redeemPoints: z.number().int().nonnegative().optional(),
+  loyaltyVerificationToken: z.string().max(200).optional(),
   couponCode: z.string().optional(),
 });
 
@@ -168,7 +172,7 @@ export class PublicController {
         res.status(400).json({ errors: validationResult.error.flatten().fieldErrors });
         return;
       }
-      const { tableNumber, items, notes, customerName, customerPhone, existingOrderId, redeemPoints, couponCode } = validationResult.data;
+      const { tableNumber, items, notes, customerName, customerPhone, whatsappMarketingOptIn, existingOrderId, redeemPoints, loyaltyVerificationToken, couponCode } = validationResult.data;
 
       // 2. Fetch restaurant
       const restaurant = await prisma.restaurant.findUnique({
@@ -179,10 +183,20 @@ export class PublicController {
         res.status(404).json({ error: 'Restaurant not found or is unavailable' });
         return;
       }
+      if (customerPhone) {
+        try { normalizeGuestPhone(customerPhone); }
+        catch { res.status(400).json({ error: 'Enter a valid mobile number' }); return; }
+      }
 
-      // A supplied phone number is not proof of customer identity. Until a verified
-      // customer flow exists, reward use must be authorized by this restaurant's staff.
-      if ((redeemPoints ?? 0) > 0 || couponCode?.trim()) {
+      if ((redeemPoints ?? 0) > 0) {
+        if (!restaurant.brandId || !customerPhone ||
+            !await new PhoneVerificationService().hasSession(restaurant.brandId, customerPhone, loyaltyVerificationToken)) {
+          res.status(401).json({ error: 'Verify your phone before redeeming points' });
+          return;
+        }
+      }
+      // Coupon issuance remains staff controlled until guest coupon claims are verified.
+      if (couponCode?.trim()) {
         const authorization = req.headers?.authorization;
         if (!authorization?.startsWith('Bearer ')) {
           res.status(401).json({ error: 'Staff authorization is required to redeem rewards' });
@@ -331,6 +345,13 @@ export class PublicController {
             customerPhone,
             customerName || 'Anonymous Customer'
           );
+          const linkedBrandId = restaurant.brandId ?? (await prisma.customer.findUnique({
+            where: { id: customerId }, select: { brandId: true },
+          }))?.brandId;
+          if (linkedBrandId && loyaltyVerificationToken &&
+              await new PhoneVerificationService().hasSession(linkedBrandId, customerPhone, loyaltyVerificationToken)) {
+            await prisma.customer.update({ where: { id: customerId }, data: { phoneVerifiedAt: new Date() } });
+          }
         } catch (crmErr) {
           logSafeError('customer.link', crmErr, 'crm', { restaurantId: restaurant.id });
         }
@@ -422,6 +443,9 @@ export class PublicController {
             if (!account || account.pointsBalance < redeemPoints) {
               throw new Error(`Insufficient points balance. Available: ${account?.pointsBalance || 0}, Requested: ${redeemPoints}`);
             }
+            const policy = restaurant.brandId ? await tx.crmLoyaltyPolicy.findUnique({ where: { brandId: restaurant.brandId } }) : null;
+            const maxRedemption = Math.floor(newTotalAmount * (policy?.maxRedemptionPercent ?? 20) / 100);
+            if (redeemPoints > maxRedemption) throw new Error('Points exceed the allowed bill discount');
             if (decimal(newTotalAmount).lt(redeemPoints)) throw new Error('Points cannot exceed the payable amount');
             pointsDiscount = moneyNumber(decimal(newTotalAmount).lt(redeemPoints) ? newTotalAmount : redeemPoints);
           }
@@ -523,6 +547,17 @@ export class PublicController {
       }
 
       const io = req.app.get('io');
+      const consentBrandId = customerId && whatsappMarketingOptIn && customerPhone && loyaltyVerificationToken
+        ? restaurant.brandId ?? (await prisma.customer.findUnique({ where: { id: customerId }, select: { brandId: true } }))?.brandId
+        : null;
+      if (customerId && whatsappMarketingOptIn && customerPhone && loyaltyVerificationToken && consentBrandId &&
+          await new PhoneVerificationService().hasSession(consentBrandId, customerPhone, loyaltyVerificationToken)) {
+        try {
+          await new ConsentService().recordWhatsAppMarketing(customerId, true, `ORDER:${order.id}`);
+        } catch (consentError) {
+          logSafeError('consent.record', consentError, 'crm', { restaurantId: restaurant.id, orderId: order.id });
+        }
+      }
       if (io && !replayed) {
         const eventName = existingOrderId ? 'ITEM_ADDED' : 'NEW_ORDER';
         io.to(restaurant.id).emit(eventName, {
@@ -706,8 +741,12 @@ export class PublicController {
       }
 
       // Find customer
+      const verified = await new PhoneVerificationService().hasSession(
+        restaurant.brandId, phone, req.headers['x-crm-verification-token'] as string | undefined,
+      );
+      if (!verified) { res.status(401).json({ error: 'Verify your phone to view loyalty points' }); return; }
       const customer = await prisma.customer.findFirst({
-        where: { phone, brandId: restaurant.brandId },
+        where: { phone: normalizeGuestPhone(phone), brandId: restaurant.brandId, crmGeneration: 2 },
         include: {
           loyaltyAccount: true,
           profiles: {

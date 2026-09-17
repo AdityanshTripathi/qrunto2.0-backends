@@ -3,6 +3,7 @@ const { violations, prisma } = require('./support/isolation.cjs');
 const { test, before, after, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const { once } = require('node:events');
+const { createHmac } = require('node:crypto');
 const jwt = require('jsonwebtoken');
 const { fixtures } = require('./support/fixtures.cjs');
 
@@ -22,6 +23,7 @@ async function request(
     auth,
     cookie,
     origin,
+    extraHeaders,
   } = {},
 ) {
   const headers = {
@@ -31,6 +33,7 @@ async function request(
       : {}),
     ...(cookie ? { Cookie: cookie } : {}),
     ...(origin ? { Origin: origin } : {}),
+    ...extraHeaders,
   };
 
   const response = await fetch(`${base}${route}`, {
@@ -458,7 +461,12 @@ test('Realtime: reconnect restores only the authorized room and delivers each ev
 test('WhatsApp: webhook logs no payload and disabled send-test route cannot send', async t => {
   const logs=[]; t.mock.method(console,'info',row=>logs.push(row));
   const privateValue='private-webhook-phone-and-message';
-  const event=await request('/api/webhook/whatsapp',{method:'POST',body:{object:'whatsapp_business_account',entry:[{privateValue}]}});
+  const secretBefore=process.env.WHATSAPP_APP_SECRET;
+  process.env.WHATSAPP_APP_SECRET='integration-webhook-secret';
+  t.after(()=>{if(secretBefore === undefined) delete process.env.WHATSAPP_APP_SECRET; else process.env.WHATSAPP_APP_SECRET=secretBefore;});
+  const body={object:'whatsapp_business_account',entry:[{privateValue}]};
+  const signature=`sha256=${createHmac('sha256',process.env.WHATSAPP_APP_SECRET).update(JSON.stringify(body)).digest('hex')}`;
+  const event=await request('/api/webhook/whatsapp',{method:'POST',body,extraHeaders:{'x-hub-signature-256':signature}});
   assert.equal(event.status,200);assert.equal(event.body,'EVENT_RECEIVED');
   assert.equal(JSON.stringify(logs).includes(privateValue),false);
   assert.equal((await request('/api/webhook/whatsapp/send-test',{method:'POST',body:{phone:'911234567890',message:'test'}})).status,404);

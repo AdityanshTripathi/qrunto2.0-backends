@@ -6,7 +6,7 @@ export class WhatsAppService {
     return {
       phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || '',
       accessToken: process.env.WHATSAPP_ACCESS_TOKEN || '',
-      graphApiUrl: 'https://graph.facebook.com/v20.0'
+      graphApiUrl: `https://graph.facebook.com/${process.env.WHATSAPP_GRAPH_API_VERSION || 'v26.0'}`
     };
   }
 
@@ -82,11 +82,12 @@ export class WhatsAppService {
     toPhone: string,
     templateName: string = 'hello_world',
     languageCode: string = 'en_US',
-    components: any[] = []
+    components: any[] = [],
+    provider?: { phoneNumberId: string; accessToken: string }
   ): Promise<any> {
     try {
       const formattedPhone = this.formatPhoneNumber(toPhone);
-      const config = this.providerConfig();
+      const config = provider ? { ...provider, graphApiUrl: this.config.graphApiUrl } : this.providerConfig();
       const url = `${config.graphApiUrl}/${config.phoneNumberId}/messages`;
 
       const payload = {

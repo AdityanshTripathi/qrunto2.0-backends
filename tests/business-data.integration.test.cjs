@@ -110,7 +110,7 @@ test('Business data: menu has real recipe costs or null, never fabricated views/
 });
 
 test('Business data: unconfigured campaign delivery cannot record successful sends', async t => {
-  const campaign = { id: 'campaign', brandId: 'brand', name: 'Test', channel: 'SMS', segmentId: null, status: 'QUEUED', attemptCount: 0 };
+  const campaign = { id: 'campaign', brandId: 'brand', crmGeneration: 2, name: 'Test', channel: 'WHATSAPP', segmentId: null, status: 'QUEUED', attemptCount: 0 };
   const log = { campaignId: 'campaign', customerId: 'customer', status: 'PENDING', attemptCount: 0, error: null };
   prisma.campaign.updateMany = async q => {
     assert.equal(q.where.brandId, 'brand');
@@ -121,7 +121,10 @@ test('Business data: unconfigured campaign delivery cannot record successful sen
     return { count: 1 };
   };
   prisma.campaign.findFirst = async q => { assert.equal(q.where.brandId, 'brand'); return campaign; };
-  prisma.customer.findMany = async q => { assert.deepEqual(q.where, { brandId: 'brand' }); return [{ id: 'customer' }]; };
+  prisma.customer.findMany = async q => { assert.deepEqual(q.where, { brandId: 'brand', crmGeneration: 2, phoneVerifiedAt: { not: null } }); return [{ id: 'customer' }]; };
+  prisma.customer.findFirst = async () => ({ id: 'customer', brandId: 'brand', crmGeneration: 2, phoneVerifiedAt: new Date(), phone: '911234567890' });
+  prisma.brandWhatsAppConnection.findUnique = async () => null;
+  prisma.customerConsent.findFirst = async () => ({ granted: true });
   prisma.campaignLog.createMany = async () => ({ count: 1 });
   prisma.campaignLog.findMany = async () => [log];
   prisma.campaignLog.updateMany = async q => {

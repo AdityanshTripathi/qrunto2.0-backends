@@ -176,8 +176,14 @@ export class OrderService {
       if (!order.customerId) {
         throw new Error('Order is not linked to a customer profile');
       }
+      const customer = await tx.customer.findUnique({ where: { id: order.customerId }, select: { crmGeneration: true } });
+      if (customer?.crmGeneration !== 2) throw new Error('Legacy CRM rewards are no longer available');
 
       if (decimal(order.totalAmount).lt(pointsToRedeem)) throw new Error('Points cannot exceed the payable amount');
+      const restaurant = await tx.restaurant.findUnique({ where: { id: restaurantId }, select: { brandId: true } });
+      const policy = restaurant?.brandId ? await tx.crmLoyaltyPolicy.findUnique({ where: { brandId: restaurant.brandId } }) : null;
+      const maxRedemption = decimal(order.totalAmount).times(policy?.maxRedemptionPercent ?? 20).dividedBy(100).floor().toNumber();
+      if (pointsToRedeem > maxRedemption) throw new Error('Points exceed the allowed bill discount');
       const redeemed = await tx.loyaltyLedger.findFirst({ where: { orderId: id, transactionType: 'REDEMPTION' } });
       if (redeemed) throw new Error('Loyalty discount already applied to this order');
 
@@ -321,12 +327,15 @@ export class OrderService {
       triggerDeduction = true;
 
       // 4. Earn loyalty points
-      if (order.customerId) await new ProfilerService().refreshPurchaseMetrics(order.customerId, restaurantId, tx);
+      const crmCustomer = order.customerId ? await tx.customer.findUnique({
+        where: { id: order.customerId }, select: { crmGeneration: true },
+      }) : null;
+      if (order.customerId && crmCustomer?.crmGeneration === 2) await new ProfilerService().refreshPurchaseMetrics(order.customerId, restaurantId, tx);
       const restaurant = await tx.restaurant.findUnique({
         where: { id: restaurantId },
         select: { brandId: true },
       });
-      if (order.customerId && restaurant?.brandId) {
+      if (order.customerId && restaurant?.brandId && crmCustomer?.crmGeneration === 2) {
         const loyaltyService = new LoyaltyService();
         await loyaltyService.earnPoints(order.customerId, restaurant.brandId, order.totalAmount, order.id, tx);
       }

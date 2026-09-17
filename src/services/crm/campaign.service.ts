@@ -1,6 +1,9 @@
 import { prisma } from '../../lib/prisma';
 import { logSafeError, logStructured, safeError } from '../../lib/safe-error';
 import { CampaignChannel, CampaignStatus, CampaignLogStatus } from '@prisma/client';
+import { ConsentService } from './consent.service';
+import { WhatsAppService } from '../whatsapp.service';
+import { WhatsAppConnectionService } from './whatsapp-connection.service';
 
 export interface CreateCampaignInput {
   name: string;
@@ -30,20 +33,32 @@ export class CampaignService {
   async createCampaign(brandId: string, data: CreateCampaignInput): Promise<any> {
     if (data.segmentId) {
       const segment = await prisma.segment.findFirst({
-        where: { id: data.segmentId, brandId }, select: { id: true },
+        where: { id: data.segmentId, brandId, crmGeneration: 2 }, select: { id: true },
       });
       if (!segment) throw new Error('Segment not found or unauthorized');
     }
+    const connection = await new WhatsAppConnectionService().status(brandId);
     return prisma.campaign.create({ data: {
-      brandId, name: data.name, channel: data.channel, segmentId: data.segmentId ?? null,
+      brandId, crmGeneration: 2, name: data.name, channel: data.channel, segmentId: data.segmentId ?? null,
       templateSubject: data.templateSubject ?? null, templateBody: data.templateBody,
-      status: CampaignStatus.QUEUED, scheduledAt: data.scheduledAt,
+      status: connection.configured
+        ? CampaignStatus.QUEUED : CampaignStatus.DRAFT,
+      scheduledAt: data.scheduledAt,
     } });
+  }
+
+  async queueDraft(brandId: string, campaignId: string): Promise<boolean> {
+    if (!(await new WhatsAppConnectionService().status(brandId)).configured) return false;
+    const result = await prisma.campaign.updateMany({
+      where: { id: campaignId, brandId, crmGeneration: 2, channel: CampaignChannel.WHATSAPP, status: CampaignStatus.DRAFT },
+      data: { status: CampaignStatus.QUEUED },
+    });
+    return result.count === 1;
   }
 
   async getCampaigns(brandId: string, page: CursorPage): Promise<{ campaigns: any[]; pagination: PageInfo }> {
     const rows = await prisma.campaign.findMany({
-      where: { brandId }, include: { segment: { select: { name: true } } },
+      where: { brandId, crmGeneration: 2 }, include: { segment: { select: { name: true } } },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: page.limit + 1,
       ...(page.cursor ? { cursor: { id: page.cursor }, skip: 1 } : {}),
@@ -61,24 +76,41 @@ export class CampaignService {
   }
 
   async deleteCampaign(brandId: string, campaignId: string): Promise<void> {
-    const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, brandId } });
+    const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, brandId, crmGeneration: 2 } });
     if (!campaign) throw new Error('Campaign not found or unauthorized');
     await prisma.campaign.delete({ where: { id: campaignId, brandId } });
   }
 
-  // Provider integration remains intentionally absent. A future provider must use
-  // this deterministic key as its idempotency key before reporting success.
-  protected async deliverRecipient(_input: {
+  protected async deliverRecipient(input: {
     idempotencyKey: string; campaignId: string; customerId: string; brandId: string;
   }): Promise<void> {
-    throw new Error('Campaign delivery provider is not configured');
+    const [campaign, customer] = await Promise.all([
+      prisma.campaign.findFirst({ where: { id: input.campaignId, brandId: input.brandId, crmGeneration: 2 } }),
+      prisma.customer.findFirst({ where: { id: input.customerId, brandId: input.brandId, crmGeneration: 2 } }),
+    ]);
+    if (!campaign || !customer || campaign.channel !== 'WHATSAPP' || !customer.phoneVerifiedAt) {
+      throw new Error('Recipient or WhatsApp campaign is not eligible');
+    }
+    if (!await new ConsentService().canSendWhatsAppMarketing(customer.id)) {
+      throw new Error('WhatsApp marketing consent is unavailable or withdrawn');
+    }
+    const provider = await new WhatsAppConnectionService().get(input.brandId);
+    if (!provider) throw new Error('WhatsApp is not connected for this brand');
+    const result = await WhatsAppService.sendTemplateMessage(customer.phone, campaign.templateBody, provider.languageCode, [], provider);
+    const providerMessageId = result?.messages?.[0]?.id;
+    if (typeof providerMessageId === 'string') {
+      await prisma.campaignLog.updateMany({
+        where: { campaignId: campaign.id, customerId: customer.id, status: CampaignLogStatus.PENDING },
+        data: { providerMessageId },
+      });
+    }
   }
 
   async sendCampaign(campaignId: string, brandId: string): Promise<boolean> {
     // Atomic claim: COMPLETED and exhausted campaigns can never be re-dispatched.
     const claim = await prisma.campaign.updateMany({
       where: {
-        id: campaignId, brandId,
+        id: campaignId, brandId, crmGeneration: 2,
         status: { in: [CampaignStatus.QUEUED, CampaignStatus.FAILED] },
         attemptCount: { lt: MAX_DELIVERY_ATTEMPTS },
       },
@@ -87,7 +119,7 @@ export class CampaignService {
     if (claim.count !== 1) return true;
 
     const campaign = await prisma.campaign.findFirst({
-      where: { id: campaignId, brandId, status: CampaignStatus.SENDING },
+      where: { id: campaignId, brandId, crmGeneration: 2, status: CampaignStatus.SENDING },
     });
     if (!campaign) throw new Error('Claimed campaign not found');
 
@@ -95,13 +127,17 @@ export class CampaignService {
       let targets: Array<{ id: string }>;
       if (campaign.segmentId) {
         const memberships = await prisma.customerSegment.findMany({
-          where: { segmentId: campaign.segmentId, customer: { brandId } },
+          where: { segmentId: campaign.segmentId, customer: { brandId, crmGeneration: 2, phoneVerifiedAt: { not: null } } },
           include: { customer: true },
         });
         targets = memberships.map(membership => membership.customer);
       } else {
-        targets = await prisma.customer.findMany({ where: { brandId }, select: { id: true } });
+        targets = await prisma.customer.findMany({ where: { brandId, crmGeneration: 2, phoneVerifiedAt: { not: null } }, select: { id: true } });
       }
+      const consent = new ConsentService();
+      targets = (await Promise.all(targets.map(async target =>
+        await consent.canSendWhatsAppMarketing(target.id) ? target : null
+      ))).filter((target): target is { id: string } => target !== null);
 
       if (targets.length === 0) {
         await prisma.campaign.updateMany({
@@ -136,7 +172,9 @@ export class CampaignService {
             { campaignId, brandId, customerId: customer.id });
           continue;
         }
-        if (log.status === CampaignLogStatus.SENT) {
+        if (log.status === CampaignLogStatus.SENT ||
+            log.status === CampaignLogStatus.DELIVERED ||
+            log.status === CampaignLogStatus.READ) {
           sentCount++;
           continue;
         }
@@ -217,12 +255,12 @@ export class CampaignService {
     // A terminated invocation can leave SENDING behind. Recover stale work only;
     // SENT recipient state and attempt counters make its retry safe and bounded.
     await prisma.campaign.updateMany({
-      where: { status: CampaignStatus.SENDING, updatedAt: { lte: staleBefore } },
+      where: { crmGeneration: 2, status: CampaignStatus.SENDING, updatedAt: { lte: staleBefore } },
       data: { status: CampaignStatus.FAILED },
     });
     const campaigns = await prisma.campaign.findMany({
       where: {
-        status: { in: [CampaignStatus.QUEUED, CampaignStatus.FAILED] },
+        crmGeneration: 2, status: { in: [CampaignStatus.QUEUED, CampaignStatus.FAILED] },
         attemptCount: { lt: MAX_DELIVERY_ATTEMPTS }, scheduledAt: { lte: now },
       },
       orderBy: [{ scheduledAt: 'asc' }, { id: 'asc' }],
@@ -254,7 +292,7 @@ export class CampaignService {
     brandId: string,
     page: CursorPage,
   ): Promise<{ logs: any[]; pagination: PageInfo }> {
-    const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, brandId } });
+    const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, brandId, crmGeneration: 2 } });
     if (!campaign) throw new Error('Campaign not found or unauthorized');
     const rows = await prisma.campaignLog.findMany({
       where: { campaignId }, include: { customer: { select: { name: true, phone: true, email: true } } },

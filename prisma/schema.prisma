@@ -469,6 +469,15 @@ model Customer {
   brandId           String                      @map("brand_id")
   name              String
   phone             String
+  crmGeneration     Int                         @default(1) @map("crm_generation")
+  phoneVerifiedAt   DateTime?                   @map("phone_verified_at")
+  dietaryPreference String?                     @map("dietary_preference")
+  seatingPreference String?                     @map("seating_preference")
+  allergyNote       String?                     @map("allergy_note")
+  brandTotalSpend   Decimal                     @default(0) @map("brand_total_spend") @db.Decimal(15, 2)
+  brandVisitCount   Int                         @default(0) @map("brand_visit_count")
+  brandFirstVisitAt DateTime?                   @map("brand_first_visit_at")
+  brandLastVisitAt  DateTime?                   @map("brand_last_visit_at")
   email             String?
   acquisitionSource String                      @default("QR_ORDER") @map("acquisition_source")
   metadataJson      Json?                       @map("metadata_json")
@@ -487,11 +496,45 @@ model Customer {
   feedbacks         Feedback[]
   loyaltyAccount    LoyaltyAccount?
   orders            Order[]
+  consents          CustomerConsent[]
 
-  @@unique([brandId, phone])
+  @@unique([brandId, phone, crmGeneration])
   @@index([phone])
+  @@index([brandId, crmGeneration, createdAt])
+  @@index([brandId, crmGeneration, brandLastVisitAt])
   @@index([brandId, createdAt, id])
   @@map("customers")
+}
+
+model CustomerConsent {
+  id            String   @id @default(uuid())
+  customerId    String   @map("customer_id")
+  channel       String
+  purpose       String
+  granted       Boolean
+  source        String
+  noticeVersion String   @map("notice_version")
+  recordedAt    DateTime @default(now()) @map("recorded_at")
+  customer      Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, channel, purpose, recordedAt])
+  @@unique([customerId, channel, purpose, source])
+  @@map("customer_consents")
+}
+
+model CustomerPhoneVerification {
+  id          String    @id @default(uuid())
+  brandId     String    @map("brand_id")
+  phone       String
+  codeHash    String    @map("code_hash")
+  tokenHash   String?   @unique @map("token_hash")
+  expiresAt   DateTime  @map("expires_at")
+  verifiedAt  DateTime? @map("verified_at")
+  attempts    Int       @default(0)
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([brandId, phone, createdAt])
+  @@map("customer_phone_verifications")
 }
 
 model CustomerRestaurantProfile {
@@ -538,6 +581,7 @@ model CustomerNote {
 model LoyaltyTier {
   id         String                      @id @default(uuid())
   brandId    String                      @map("brand_id")
+  crmGeneration Int                       @default(1) @map("crm_generation")
   name       String
   minSpend   Decimal                       @default(0) @map("min_spend") @db.Decimal(15, 2)
   multiplier Float                       @default(1.0)
@@ -546,7 +590,7 @@ model LoyaltyTier {
   profiles   CustomerRestaurantProfile[]
   brand      Brand                       @relation(fields: [brandId], references: [id], onDelete: Cascade)
 
-  @@unique([brandId, name])
+  @@unique([brandId, name, crmGeneration])
   @@map("loyalty_tiers")
 }
 
@@ -582,6 +626,7 @@ model LoyaltyLedger {
 model Coupon {
   id                String             @id @default(uuid())
   brandId           String             @map("brand_id")
+  crmGeneration     Int                @default(1) @map("crm_generation")
   code              String
   discountType      CouponDiscountType @map("discount_type")
   discountValue     Decimal              @map("discount_value") @db.Decimal(15, 6)
@@ -595,7 +640,7 @@ model Coupon {
   brand             Brand              @relation(fields: [brandId], references: [id], onDelete: Cascade)
   issuances         CustomerCoupon[]
 
-  @@unique([brandId, code])
+  @@unique([brandId, code, crmGeneration])
   @@map("coupons")
 }
 
@@ -620,6 +665,7 @@ model CustomerCoupon {
 model Segment {
   id           String            @id @default(uuid())
   brandId      String            @map("brand_id")
+  crmGeneration Int              @default(1) @map("crm_generation")
   name         String
   description  String?
   criteriaJson Json              @map("criteria_json")
@@ -629,7 +675,7 @@ model Segment {
   customers    CustomerSegment[]
   brand        Brand             @relation(fields: [brandId], references: [id], onDelete: Cascade)
 
-  @@unique([brandId, name])
+  @@unique([brandId, name, crmGeneration])
   @@map("segments")
 }
 
@@ -648,6 +694,7 @@ model CustomerSegment {
 model Campaign {
   id              String          @id @default(uuid())
   brandId         String          @map("brand_id")
+  crmGeneration   Int             @default(1) @map("crm_generation")
   name            String
   channel         CampaignChannel
   segmentId       String?         @map("segment_id")
@@ -679,6 +726,9 @@ model CampaignLog {
   errorDetails String?           @map("error_details")
   attemptCount Int               @default(0) @map("attempt_count")
   lastAttemptAt DateTime?        @map("last_attempt_at")
+  providerMessageId String?      @unique @map("provider_message_id")
+  deliveredAt  DateTime?         @map("delivered_at")
+  readAt       DateTime?         @map("read_at")
   createdAt    DateTime          @default(now()) @map("created_at")
   campaign     Campaign          @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   customer     Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
@@ -1092,6 +1142,27 @@ enum CampaignChannel {
   SMS
   EMAIL
   PUSH
+  WHATSAPP
+}
+
+model CrmLoyaltyPolicy {
+  brandId                 String   @id @map("brand_id")
+  pointsPerHundredRupees  Int      @default(1) @map("points_per_hundred_rupees")
+  maxRedemptionPercent    Int      @default(20) @map("max_redemption_percent")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  @@map("crm_loyalty_policies")
+}
+
+model BrandWhatsAppConnection {
+  brandId              String   @id @map("brand_id")
+  phoneNumberId        String   @unique @map("phone_number_id")
+  encryptedAccessToken String   @map("encrypted_access_token")
+  languageCode         String   @default("en_US") @map("language_code")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@map("brand_whatsapp_connections")
 }
 
 enum CampaignStatus {
@@ -1105,6 +1176,8 @@ enum CampaignStatus {
 enum CampaignLogStatus {
   PENDING
   SENT
+  DELIVERED
+  READ
   FAILED
 }
 

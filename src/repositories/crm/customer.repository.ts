@@ -4,7 +4,7 @@ import { Customer } from '@prisma/client';
 export class CustomerRepository {
   async findById(id: string, brandId: string): Promise<Customer | null> {
     return prisma.customer.findFirst({
-      where: { id, brandId },
+      where: { id, brandId, crmGeneration: 2 },
       include: {
         profiles: true,
         notes: {
@@ -21,7 +21,7 @@ export class CustomerRepository {
 
   async findByPhone(phone: string, brandId: string): Promise<Customer | null> {
     return prisma.customer.findFirst({
-      where: { phone, brandId },
+      where: { phone, brandId, crmGeneration: 2 },
       include: {
         profiles: true,
       }
@@ -39,6 +39,7 @@ export class CustomerRepository {
     return prisma.customer.create({
       data: {
         brandId: data.brandId,
+        crmGeneration: 2,
         name: data.name,
         phone: data.phone,
         email: data.email || null,
@@ -55,7 +56,7 @@ export class CustomerRepository {
   ): Promise<Customer> {
     // Multi-tenant check
     const existing = await prisma.customer.findFirst({
-      where: { id, brandId },
+      where: { id, brandId, crmGeneration: 2 },
     });
     if (!existing) {
       throw new Error('Customer not found or unauthorized');
@@ -88,6 +89,7 @@ export class CustomerRepository {
     // Build dynamic where clause
     const whereClause: any = {
       brandId,
+      crmGeneration: 2,
     };
 
     if (search) {
@@ -162,6 +164,7 @@ export class CustomerRepository {
 
     const whereClause: any = {
       brandId,
+      crmGeneration: 2,
     };
 
     if (search) {

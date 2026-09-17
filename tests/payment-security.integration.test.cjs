@@ -130,6 +130,7 @@ test('Electronic confirmation and direct PAID transition are rejected', async ()
 test('Concurrent cash requests contend on tenant/status/amount claim; effects happen once', async t => {
   t.mock.method(DeductionQueueService,'enqueueDeduction',async()=>{});
   order.customerId='customer'; a.restaurant.brandId='brand'; let earned=0;
+  prisma.customer.findUnique=async()=>({crmGeneration:2});
   t.mock.method(ProfilerService.prototype,'refreshPurchaseMetrics',async()=>{});
   t.mock.method(LoyaltyService.prototype,'earnPoints',async()=>{earned++;});
   // Force both requests to read the same unpaid state before the conditional write.

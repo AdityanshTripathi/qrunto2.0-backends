@@ -116,21 +116,19 @@ test('Timezone: inventory dashboard uses tenant day for usage, receipts and wast
   }
 });
 
-test('Timezone: CRM recency uses each brand restaurant profile without crossing tenant scope', async t => {
+test('Timezone: CRM recency uses brand visits without crossing tenant scope', async t => {
   t.mock.timers.enable({ apis: ['Date'], now });
   const db = fixtures(), a = db.tenant(1), b = db.tenant(2);
   a.restaurant.timezone = 'Asia/Kolkata'; b.restaurant.timezone = 'America/New_York';
-  mock(t, prisma.segment, 'findUnique', async () => ({ id: 'segment', brandId: 'brand', criteriaJson: { visitedWithinDays: 1 } }));
-  mock(t, prisma.restaurant, 'findMany', async q => { assert.deepEqual(q.where, { brandId: 'brand' }); return [a.restaurant, b.restaurant]; });
+  mock(t, prisma.segment, 'findUnique', async () => ({ id: 'segment', brandId: 'brand', crmGeneration: 2, criteriaJson: { visitedWithinDays: 1 } }));
+  mock(t, prisma.restaurant, 'findFirst', async q => { assert.deepEqual(q.where, { brandId: 'brand' }); return a.restaurant; });
   let where;
   mock(t, prisma.customer, 'findMany', async q => { where = q.where; return []; });
   mock(t, prisma.customerSegment, 'deleteMany', async () => ({ count: 0 }));
   await new SegmentService().evaluateSegment('segment', 'brand');
   assert.equal(where.brandId, 'brand');
-  const branches = where.profiles.some.OR;
-  assert.equal(branches[0].restaurantId, a.restaurant.id);
-  assert.equal(iso(branches[0].lastVisit.gte), '2026-08-30T18:30:00.000Z');
-  assert.equal(iso(branches[1].lastVisit.gte), '2026-08-30T04:00:00.000Z');
+  assert.equal(where.crmGeneration, 2);
+  assert.equal(iso(where.brandLastVisitAt.gte), '2026-08-30T18:30:00.000Z');
   assert.equal(tz.calendarDaysSince(new Date('2026-03-08T05:30:00Z'), new Date('2026-03-09T04:30:00Z'), 'America/New_York'), 1);
   await assert.rejects(new SegmentService().evaluateSegment('segment', 'other-brand'));
 });
@@ -138,7 +136,7 @@ test('Timezone: CRM recency uses each brand restaurant profile without crossing 
 test('Timezone: RFM calendar recency and occasions use profile restaurant timezone', async t => {
   t.mock.timers.enable({ apis: ['Date'], now });
   const profile = { lastVisit: new Date('2026-08-31T18:00:00Z'), totalOrders: 1, totalSpend: 10, restaurant: { id: 'a', brandId: 'brand', timezone: 'Asia/Kolkata' } };
-  const customer = { id: 'c', brandId: 'brand', name: 'Guest', phone: 'test', createdAt: now, profiles: [profile], metadataJson: { birthday: '1990-09-01' } };
+  const customer = { id: 'c', brandId: 'brand', name: 'Guest', phone: 'test', createdAt: now, profiles: [profile], birthday: new Date('1990-09-01T00:00:00Z') };
   mock(t, prisma.customer, 'findMany', async () => [customer]);
   mock(t, prisma.customer, 'update', async () => customer);
   const rfm = await new RFMService().calculateRFM('brand'); assert.equal(rfm[0].recencyDays, 1);

@@ -34,7 +34,7 @@ export class LoyaltyService {
 
     // 1. Fetch all brand loyalty tiers sorted by minSpend desc
     const tiers = await client.loyaltyTier.findMany({
-      where: { brandId },
+      where: { brandId, crmGeneration: 2 },
       orderBy: { minSpend: 'desc' },
     });
 
@@ -82,7 +82,9 @@ export class LoyaltyService {
     const { multiplier } = await this.determineCustomerTierAndMultiplier(customerId, brandId, client);
 
     // 3. Calculate points (e.g. ₹1 = 1 point * multiplier)
-    const pointsToEarn = decimal(amountSpent).times(multiplier).floor().toNumber();
+    const policy = await client.crmLoyaltyPolicy.findUnique({ where: { brandId } });
+    const rate = policy?.pointsPerHundredRupees ?? 1;
+    const pointsToEarn = decimal(amountSpent).times(rate).times(multiplier).dividedBy(100).floor().toNumber();
 
     if (pointsToEarn <= 0) return account;
 

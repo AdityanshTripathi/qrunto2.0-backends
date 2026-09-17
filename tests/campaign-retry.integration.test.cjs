@@ -11,7 +11,7 @@ after(() => assert.equal(violations.length, 0));
 function harness(t, { status = 'QUEUED', campaignAttempts = 0, recipients = [] } = {}) {
   const now = new Date();
   const campaign = {
-    id: 'campaign-1', brandId: 'brand-1', segmentId: null, status,
+    id: 'campaign-1', brandId: 'brand-1', crmGeneration: 2, segmentId: null, status,
     attemptCount: campaignAttempts, scheduledAt: new Date(now.getTime() - 1000), updatedAt: now,
   };
   const customers = [{ id: 'sent-customer' }, { id: 'retry-customer' }];
@@ -19,6 +19,7 @@ function harness(t, { status = 'QUEUED', campaignAttempts = 0, recipients = [] }
 
   void prisma.campaign.updateMany; void prisma.campaign.findMany; void prisma.campaign.findFirst;
   void prisma.customer.findMany; void prisma.campaignLog.createMany;
+  void prisma.customerConsent.findFirst;
   void prisma.campaignLog.findMany; void prisma.campaignLog.updateMany;
 
   t.mock.method(prisma.campaign, 'updateMany', async ({ where, data }) => {
@@ -41,8 +42,9 @@ function harness(t, { status = 'QUEUED', campaignAttempts = 0, recipients = [] }
     where.id === campaign.id && where.brandId === campaign.brandId && (!where.status || where.status === campaign.status)
       ? { ...campaign } : null);
   t.mock.method(prisma.customer, 'findMany', async ({ where }) => {
-    assert.deepEqual(where, { brandId: campaign.brandId }); return customers;
+    assert.deepEqual(where, { brandId: campaign.brandId, crmGeneration: 2, phoneVerifiedAt: { not: null } }); return customers;
   });
+  t.mock.method(prisma.customerConsent, 'findFirst', async () => ({ granted: true }));
   t.mock.method(prisma.campaignLog, 'createMany', async ({ data, skipDuplicates }) => {
     assert.equal(skipDuplicates, true); let count = 0;
     for (const row of data) if (!logs.has(row.customerId)) {
@@ -66,8 +68,8 @@ function harness(t, { status = 'QUEUED', campaignAttempts = 0, recipients = [] }
   return { campaign, logs };
 }
 
-test('Campaign retry: completed campaign and SENT recipient are never dispatched twice', async t => {
-  const state = harness(t, { recipients: [{ customerId: 'sent-customer', status: 'SENT', attemptCount: 1 }] });
+test('Campaign retry: completed campaign and DELIVERED recipient are never dispatched twice', async t => {
+  const state = harness(t, { recipients: [{ customerId: 'sent-customer', status: 'DELIVERED', attemptCount: 1 }] });
   const delivered = [];
   t.mock.method(CampaignService.prototype, 'deliverRecipient', async input => delivered.push(input));
   const service = new CampaignService();

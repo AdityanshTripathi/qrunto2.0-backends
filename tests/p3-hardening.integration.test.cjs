@@ -95,7 +95,7 @@ test('P3: campaign statistics aggregate in PostgreSQL instead of loading every c
   prisma.campaign.findMany = async () => assert.fail('campaign stats must not load raw campaigns');
   prisma.campaign.groupBy = async query => {
     assert.deepEqual(query.by, ['channel', 'status']);
-    assert.deepEqual(query.where, { brandId: 'brand-1' });
+    assert.deepEqual(query.where, { brandId: 'brand-1', crmGeneration: 2 });
     return [
       { channel: 'SMS', status: 'COMPLETED', _count: { _all: 3 }, _sum: { sentCount: 20, failedCount: 0 } },
       { channel: 'EMAIL', status: 'FAILED', _count: { _all: 1 }, _sum: { sentCount: 4, failedCount: 2 } },

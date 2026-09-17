@@ -15,6 +15,7 @@ export class OccasionService {
   // Scans all customers and dispatches occasion messages if month & day match today
   async checkAndSendOccasionMessages(): Promise<OccasionCustomer[]> {
     const customers = await prisma.customer.findMany({
+      where: { crmGeneration: 2 },
       include: { brand: true, profiles: { include: { restaurant: { select: { id: true, timezone: true, brandId: true } } } } },
     });
 
@@ -24,20 +25,21 @@ export class OccasionService {
 
     for (const customer of customers) {
       const zones = customer.profiles.filter(p => p.restaurant.brandId === customer.brandId).map(p => timezone(p.restaurant.timezone));
-      const meta = (customer.metadataJson || {}) as Record<string, any>;
+      const birthday = customer.birthday?.toISOString();
+      const anniversary = customer.anniversary?.toISOString();
       
       // 1. Birthday Check
-      if (meta['birthday']) {
+      if (birthday) {
         try {
-          const bdayDate = new Date(meta['birthday']);
+          const bdayDate = new Date(birthday);
           if (zones.some(zone => localDate(now, zone).slice(5) === bdayDate.toISOString().slice(5, 10))) {
             // Match! Send Message
             // Create system notification
-            await Promise.all(customer.profiles.filter(p => p.restaurant.brandId === customer.brandId && localDate(now, timezone(p.restaurant.timezone)).slice(5) === (meta['birthday'] as string).slice(5, 10)).map(p => prisma.notification.create({
+            await Promise.all(customer.profiles.filter(p => p.restaurant.brandId === customer.brandId && localDate(now, timezone(p.restaurant.timezone)).slice(5) === birthday.slice(5, 10)).map(p => prisma.notification.create({
               data: {
                 restaurantId: p.restaurant.id,
                 title: `🎉 Birthday Alert: ${customer.name}`,
-                message: `Today is ${customer.name}'s birthday (${customer.phone}). Congratulatory message has been sent.`,
+                message: `Today is ${customer.name}'s birthday. Review the guest profile before contacting them.`,
                 type: 'SYSTEM',
               },
             })));
@@ -58,17 +60,17 @@ export class OccasionService {
       }
 
       // 2. Anniversary Check
-      if (meta['anniversary']) {
+      if (anniversary) {
         try {
-          const annivDate = new Date(meta['anniversary']);
+          const annivDate = new Date(anniversary);
           if (zones.some(zone => localDate(now, zone).slice(5) === annivDate.toISOString().slice(5, 10))) {
             // Match! Send Message
             // Create system notification
-            await Promise.all(customer.profiles.filter(p => p.restaurant.brandId === customer.brandId && localDate(now, timezone(p.restaurant.timezone)).slice(5) === (meta['anniversary'] as string).slice(5, 10)).map(p => prisma.notification.create({
+            await Promise.all(customer.profiles.filter(p => p.restaurant.brandId === customer.brandId && localDate(now, timezone(p.restaurant.timezone)).slice(5) === anniversary.slice(5, 10)).map(p => prisma.notification.create({
               data: {
                 restaurantId: p.restaurant.id,
                 title: `💍 Anniversary Alert: ${customer.name}`,
-                message: `Today is ${customer.name}'s anniversary (${customer.phone}). Congratulatory message has been sent.`,
+                message: `Today is ${customer.name}'s anniversary. Review the guest profile before contacting them.`,
                 type: 'SYSTEM',
               },
             })));
@@ -98,40 +100,41 @@ export class OccasionService {
   // Get upcoming occasions for a brand (next 30 days)
   async getUpcomingOccasions(brandId: string): Promise<any[]> {
     const customers = await prisma.customer.findMany({
-      where: { brandId },
-      select: { id: true, name: true, phone: true, email: true, metadataJson: true, profiles: { where: { restaurant: { brandId } }, include: { restaurant: { select: { timezone: true } } } } },
+      where: { brandId, crmGeneration: 2 },
+      select: { id: true, name: true, phone: true, email: true, birthday: true, anniversary: true, profiles: { where: { restaurant: { brandId } }, include: { restaurant: { select: { timezone: true } } } } },
     });
 
     const now = new Date();
     const upcoming: any[] = [];
 
     for (const customer of customers) {
-      const meta = (customer.metadataJson || {}) as Record<string, any>;
+      const birthday = customer.birthday?.toISOString();
+      const anniversary = customer.anniversary?.toISOString();
       
-      if (meta['birthday']) {
+      if (birthday && customer.profiles.length) {
         // Calculate days until next birthday
-        const days = Math.min(...customer.profiles.map(p => occasionDays(String(meta['birthday']), now, timezone(p.restaurant.timezone))));
+        const days = Math.min(...customer.profiles.map(p => occasionDays(birthday, now, timezone(p.restaurant.timezone))));
         if (days <= 30) {
           upcoming.push({
             customerId: customer.id,
             name: customer.name,
             phone: customer.phone,
             type: 'BIRTHDAY',
-            date: meta['birthday'],
+            date: birthday,
             daysRemaining: days,
           });
         }
       }
 
-      if (meta['anniversary']) {
-        const days = Math.min(...customer.profiles.map(p => occasionDays(String(meta['anniversary']), now, timezone(p.restaurant.timezone))));
+      if (anniversary && customer.profiles.length) {
+        const days = Math.min(...customer.profiles.map(p => occasionDays(anniversary, now, timezone(p.restaurant.timezone))));
         if (days <= 30) {
           upcoming.push({
             customerId: customer.id,
             name: customer.name,
             phone: customer.phone,
             type: 'ANNIVERSARY',
-            date: meta['anniversary'],
+            date: anniversary,
             daysRemaining: days,
           });
         }

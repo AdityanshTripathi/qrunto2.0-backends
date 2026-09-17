@@ -20,7 +20,7 @@ export class SegmentService {
     criteria: SegmentCriteria
   ): Promise<any> {
     const existing = await prisma.segment.findFirst({
-      where: { brandId, name: { equals: name, mode: 'insensitive' } },
+      where: { brandId, crmGeneration: 2, name: { equals: name, mode: 'insensitive' } },
     });
 
     if (existing) {
@@ -30,6 +30,7 @@ export class SegmentService {
     const segment = await prisma.segment.create({
       data: {
         brandId,
+        crmGeneration: 2,
         name,
         description,
         criteriaJson: criteria as any,
@@ -44,7 +45,7 @@ export class SegmentService {
   // Get segments list for a brand with membership sizes
   async getSegments(brandId: string): Promise<any[]> {
     return prisma.segment.findMany({
-      where: { brandId },
+      where: { brandId, crmGeneration: 2 },
       include: {
         _count: {
           select: { customers: true },
@@ -57,7 +58,7 @@ export class SegmentService {
   // Delete segment template
   async deleteSegment(brandId: string, segmentId: string): Promise<void> {
     const segment = await prisma.segment.findFirst({
-      where: { id: segmentId, brandId },
+      where: { id: segmentId, brandId, crmGeneration: 2 },
     });
 
     if (!segment) {
@@ -75,7 +76,7 @@ export class SegmentService {
       where: { id: segmentId },
     });
 
-    if (!segment || segment.brandId !== brandId) {
+    if (!segment || segment.brandId !== brandId || segment.crmGeneration !== 2) {
       throw new Error('Segment not found or unauthorized');
     }
 
@@ -83,43 +84,29 @@ export class SegmentService {
     const now = new Date();
 
     // 1. Build dynamic query object
-    const where: any = { brandId };
+    const where: any = { brandId, crmGeneration: 2 };
 
-    const profileFilters: any = {};
     if (criteria.minSpend !== undefined && criteria.minSpend > 0) {
-      profileFilters.totalSpend = { gte: criteria.minSpend };
+      where.brandTotalSpend = { gte: criteria.minSpend };
     }
     if (criteria.minOrders !== undefined && criteria.minOrders > 0) {
-      profileFilters.totalOrders = { gte: criteria.minOrders };
+      where.brandVisitCount = { gte: criteria.minOrders };
     }
     const hasRecency = (criteria.lastVisitDaysAgo ?? 0) > 0 || (criteria.visitedWithinDays ?? 0) > 0;
     if (hasRecency) {
-      // Brand segments evaluate each restaurant profile in that restaurant's timezone.
-      const restaurants = await prisma.restaurant.findMany({ where: { brandId }, select: { id: true, timezone: true } });
-      where.profiles = { some: { OR: restaurants.map(restaurant => {
-        const zone = timezone(restaurant.timezone);
-        return { ...profileFilters, restaurantId: restaurant.id, lastVisit: {
-          ...((criteria.lastVisitDaysAgo ?? 0) > 0 ? { lt: daysAgo(criteria.lastVisitDaysAgo! - 1, zone, now) } : {}),
-          ...((criteria.visitedWithinDays ?? 0) > 0 ? { gte: daysAgo(criteria.visitedWithinDays!, zone, now) } : {}),
-        } };
-      }) } };
-    } else if (Object.keys(profileFilters).length > 0) {
-      where.profiles = { some: profileFilters };
+      const restaurant = await prisma.restaurant.findFirst({ where: { brandId }, select: { timezone: true } });
+      const zone = timezone(restaurant?.timezone);
+      where.brandLastVisitAt = {
+        ...((criteria.lastVisitDaysAgo ?? 0) > 0 ? { lt: daysAgo(criteria.lastVisitDaysAgo! - 1, zone, now) } : {}),
+        ...((criteria.visitedWithinDays ?? 0) > 0 ? { gte: daysAgo(criteria.visitedWithinDays!, zone, now) } : {}),
+      };
     }
 
-    // JSON metadata tags checks
     if (criteria.dietary && criteria.dietary !== 'None') {
-      where.metadataJson = {
-        path: ['dietary'],
-        equals: criteria.dietary,
-      };
+      where.dietaryPreference = criteria.dietary;
     }
     if (criteria.seating && criteria.seating !== 'None') {
-      where.metadataJson = {
-        ...where.metadataJson,
-        path: ['seating'],
-        equals: criteria.seating,
-      };
+      where.seatingPreference = criteria.seating;
     }
 
     // 2. Query matching customers
@@ -154,7 +141,7 @@ export class SegmentService {
   // Evaluate all segments for a brand (typically run via cron)
   async evaluateAllSegmentsForBrand(brandId: string): Promise<{ processed: number; failed: number }> {
     const segments = await prisma.segment.findMany({
-      where: { brandId },
+      where: { brandId, crmGeneration: 2 },
       select: { id: true },
     });
 
@@ -175,7 +162,7 @@ export class SegmentService {
     const memberships = await prisma.customerSegment.findMany({
       where: {
         segmentId,
-        segment: { brandId },
+        segment: { brandId, crmGeneration: 2 },
       },
       include: {
         customer: {

@@ -16,7 +16,7 @@ export class CouponService {
   // Create a new coupon campaign template
   async createCoupon(brandId: string, data: CreateCouponInput): Promise<any> {
     const existing = await prisma.coupon.findFirst({
-      where: { brandId, code: { equals: data.code, mode: 'insensitive' } },
+      where: { brandId, crmGeneration: 2, code: { equals: data.code, mode: 'insensitive' } },
     });
 
     if (existing) {
@@ -26,6 +26,7 @@ export class CouponService {
     return prisma.coupon.create({
       data: {
         brandId,
+        crmGeneration: 2,
         code: data.code.toUpperCase(),
         discountType: data.discountType,
         discountValue: data.discountValue,
@@ -40,7 +41,7 @@ export class CouponService {
   // Get active/inactive coupon campaigns for brand
   async getCoupons(brandId: string): Promise<any[]> {
     return prisma.coupon.findMany({
-      where: { brandId },
+      where: { brandId, crmGeneration: 2 },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -48,7 +49,7 @@ export class CouponService {
   // Delete coupon template
   async deleteCoupon(brandId: string, couponId: string): Promise<void> {
     const coupon = await prisma.coupon.findFirst({
-      where: { id: couponId, brandId },
+      where: { id: couponId, brandId, crmGeneration: 2 },
     });
 
     if (!coupon) {
@@ -69,6 +70,7 @@ export class CouponService {
     const coupon = await prisma.coupon.findFirst({
       where: {
         id: couponId,
+        crmGeneration: 2,
         ...(actorBrandId ? { brandId: actorBrandId } : {}),
       },
       select: {
@@ -85,6 +87,7 @@ export class CouponService {
       where: {
         id: customerId,
         brandId: coupon.brandId,
+        crmGeneration: 2,
       },
       select: { id: true },
     });
@@ -124,6 +127,7 @@ export class CouponService {
         isRedeemed: false,
         coupon: {
           brandId,
+          crmGeneration: 2,
           isActive: true,
           startDate: { lte: now },
           endDate: { gte: now },
@@ -147,7 +151,7 @@ export class CouponService {
     const client = tx || prisma;
     const now = new Date();
     if (!tx || !restaurantId) throw new Error('Coupon redemption requires an order transaction and restaurant');
-    const customer = await client.customer.findFirst({ where: { id: customerId, profiles: { some: { restaurantId } } } });
+    const customer = await client.customer.findFirst({ where: { id: customerId, crmGeneration: 2, profiles: { some: { restaurantId } } } });
     const restaurant = await client.restaurant.findUnique({ where: { id: restaurantId }, select: { brandId: true } });
     if (!customer || !restaurant?.brandId || customer.brandId !== restaurant.brandId) throw new Error('Customer not found in this restaurant brand');
 
@@ -155,6 +159,7 @@ export class CouponService {
     const coupon = await client.coupon.findFirst({
       where: {
         brandId: restaurant.brandId,
+        crmGeneration: 2,
         code: { equals: couponCode, mode: 'insensitive' },
         isActive: true,
         startDate: { lte: now },

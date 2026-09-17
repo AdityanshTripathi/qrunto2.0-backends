@@ -31,6 +31,22 @@ export class ProfilerService {
         repeatStatus: count > 1 ? 'REPEAT' : 'NEW',
       },
     });
+    const customer = await tx.customer.findUnique({ where: { id: customerId }, select: { brandId: true, crmGeneration: true } });
+    if (customer?.crmGeneration === 2) {
+      const profiles = await tx.customerRestaurantProfile.findMany({
+        where: { customerId, restaurant: { brandId: customer.brandId }, totalOrders: { gt: 0 } },
+        select: { totalOrders: true, totalSpend: true, firstVisit: true, lastVisit: true },
+      });
+      await tx.customer.update({
+        where: { id: customerId },
+        data: {
+          brandVisitCount: profiles.reduce((sum, profile) => sum + profile.totalOrders, 0),
+          brandTotalSpend: profiles.reduce((sum, profile) => sum.plus(profile.totalSpend), decimal(0)),
+          brandFirstVisitAt: profiles.length ? new Date(Math.min(...profiles.map(profile => profile.firstVisit.getTime()))) : null,
+          brandLastVisitAt: profiles.length ? new Date(Math.max(...profiles.map(profile => profile.lastVisit.getTime()))) : null,
+        },
+      });
+    }
   }
 
   /**
@@ -44,9 +60,10 @@ export class ProfilerService {
     name: string,
     email?: string
   ): Promise<string> {
-    const formattedPhone = phone.trim();
-    if (!formattedPhone) {
-      throw new Error('Phone number is required for customer linking');
+    const digits = phone.replace(/\D/g, '');
+    const formattedPhone = digits.length === 10 ? `91${digits}` : digits;
+    if (!/^\d{11,15}$/.test(formattedPhone)) {
+      throw new Error('A valid mobile number is required for customer linking');
     }
 
     // 1. Fetch restaurant to get its brandId
@@ -79,9 +96,10 @@ export class ProfilerService {
     // 2. Find or Create Customer at the Brand level
     let customer = await prisma.customer.findUnique({
       where: {
-        brandId_phone: {
+        brandId_phone_crmGeneration: {
           brandId,
           phone: formattedPhone,
+          crmGeneration: 2,
         },
       },
     });
@@ -95,6 +113,7 @@ export class ProfilerService {
         data: {
           brandId,
           phone: formattedPhone,
+          crmGeneration: 2,
           name: name.trim() || 'Anonymous Customer',
           email: email?.trim() || null,
           acquisitionSource: 'QR_ORDER',

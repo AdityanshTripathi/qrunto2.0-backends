@@ -12,6 +12,7 @@
     "start": "node dist/server.js",
     "postinstall": "prisma generate",
     "db:check": "ts-node src/scripts/check-database-connection.ts",
+    "crm:reset-legacy": "ts-node src/scripts/reset-legacy-crm.ts",
     "test:tenant-security": "ts-node src/scripts/test-order-tenant-security.ts",
     "test:cors-security": "ts-node src/scripts/test-cors-security.ts",
     "promote-admin": "ts-node src/scripts/promote-admin.ts",

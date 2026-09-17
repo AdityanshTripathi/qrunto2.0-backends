@@ -8,10 +8,10 @@ import { CampaignChannel } from '@prisma/client';
 
 const CreateCampaignSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters').max(50),
-  channel: z.enum(['SMS', 'EMAIL', 'PUSH'] as const),
+  channel: z.literal('WHATSAPP'),
   segmentId: z.string().uuid('Invalid segment ID').optional().nullable(),
   templateSubject: z.string().max(100).optional().nullable(),
-  templateBody: z.string().min(5, 'Message body must be at least 5 characters').max(1000),
+  templateBody: z.string().regex(/^[a-z0-9_]{3,100}$/, 'Use an approved WhatsApp template name'),
   scheduledAt: z.string().refine((val) => !isNaN(Date.parse(val)), 'Invalid scheduled date'),
 });
 
@@ -94,7 +94,7 @@ export class CampaignController {
         scheduledAt: localDateTime(validation.data.scheduledAt, zone),
       });
 
-      res.status(201).json({ message: 'Campaign queued successfully', campaign });
+      res.status(201).json({ message: campaign.status === 'DRAFT' ? 'Campaign saved as draft' : 'Campaign queued successfully', campaign });
     } catch (err: any) {
       if (err instanceof BusinessDateError) { res.status(400).json({ error: err.message }); return; }
       res.status(500).json({ error: 'Internal server error' });
@@ -186,7 +186,7 @@ export class CampaignController {
 
       const groups = await prisma.campaign.groupBy({
         by: ['channel', 'status'],
-        where: { brandId },
+        where: { brandId, crmGeneration: 2 },
         _count: { _all: true },
         _sum: { sentCount: true, failedCount: true },
       });

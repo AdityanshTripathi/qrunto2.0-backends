@@ -36,7 +36,7 @@ export class LoyaltyController {
       }
 
       const tiers = await prisma.loyaltyTier.findMany({
-        where: { brandId },
+        where: { brandId, crmGeneration: 2 },
         orderBy: { minSpend: 'asc' },
       });
 
@@ -87,7 +87,7 @@ export class LoyaltyController {
         // Update existing tier
         // Multi-tenant verify
         const existing = await prisma.loyaltyTier.findFirst({
-          where: { id: tierId, brandId },
+          where: { id: tierId, brandId, crmGeneration: 2 },
         });
 
         if (!existing) {
@@ -107,7 +107,7 @@ export class LoyaltyController {
         // Create new tier
         // Check if name is unique under this brand
         const duplicate = await prisma.loyaltyTier.findFirst({
-          where: { brandId, name: { equals: name, mode: 'insensitive' } },
+          where: { brandId, crmGeneration: 2, name: { equals: name, mode: 'insensitive' } },
         });
 
         if (duplicate) {
@@ -118,6 +118,7 @@ export class LoyaltyController {
         tier = await prisma.loyaltyTier.create({
           data: {
             brandId,
+            crmGeneration: 2,
             name,
             minSpend,
             multiplier,
@@ -160,7 +161,7 @@ export class LoyaltyController {
 
       // Check tier belongs to brand
       const existing = await prisma.loyaltyTier.findFirst({
-        where: { id: tierId, brandId },
+        where: { id: tierId, brandId, crmGeneration: 2 },
       });
 
       if (!existing) {
@@ -209,7 +210,7 @@ export class LoyaltyController {
       }
 
       const customer = await prisma.customer.findFirst({
-        where: { brandId, phone },
+        where: { brandId, phone, crmGeneration: 2 },
         include: {
           loyaltyAccount: true,
           profiles: {

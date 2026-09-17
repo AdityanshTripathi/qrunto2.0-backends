@@ -18,6 +18,7 @@ import notificationRouter from './routes/notification.routes';
 import waiterRouter from './routes/waiter.routes';
 import inventoryRouter from './routes/inventory.routes';
 import customerRouter from './routes/crm/customer.routes';
+import crmV2Router from './routes/crm/v2.routes';
 import loyaltyRouter from './routes/crm/loyalty.routes';
 import couponRouter from './routes/crm/coupon.routes';
 import segmentRouter from './routes/crm/segment.routes';
@@ -124,7 +125,9 @@ app.use(helmet({
   referrerPolicy: { policy: 'no-referrer' },
   frameguard: { action: 'deny' },
 }));
-app.use(express.json());
+app.use(express.json({ verify: (req, _res, body) => {
+  if ((req as Request).originalUrl.startsWith('/api/webhook/whatsapp')) (req as Request & { rawBody?: Buffer }).rawBody = Buffer.from(body);
+} }));
 
 // Auth routes
 app.use('/api/auth', authRouter);
@@ -167,6 +170,7 @@ app.use('/api/inventory', inventoryRouter);
 
 // Customer CRM routes
 app.use('/api/crm/customers', customerRouter);
+app.use('/api/crm/v2', crmV2Router);
 app.use('/api/crm/loyalty', loyaltyRouter);
 app.use('/api/crm/coupons', couponRouter);
 app.use('/api/crm/segments', segmentRouter);

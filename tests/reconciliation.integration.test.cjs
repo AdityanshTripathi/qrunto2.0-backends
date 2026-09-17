@@ -75,7 +75,10 @@ test('Concurrent loyalty redemptions cannot spend the same balance twice',async(
   assert.equal(result.filter(r=>r.status==='fulfilled').length,1);assert.equal(balance,0);assert.equal(ledgers,1);
 });
 test('POS rejects fractional or excessive points without burning balance',async()=>{
-  const id=db.id(90);db.data.orders.push({id,restaurantId:a.restaurant.id,status:'SERVED',customerId:'c',totalAmount:5});
+  const id=db.id(90);db.data.orders.push({id,restaurantId:a.restaurant.id,status:'SERVED',customerId:'c',totalAmount:20});
+  a.restaurant.brandId='brand';
+  prisma.customer.findUnique=async()=>({crmGeneration:2});
+  prisma.crmLoyaltyPolicy.findUnique=async()=>null;
   await assert.rejects(new OrderService().applyLoyaltyDiscount(id,a.restaurant.id,6),/exceed/);
   await assert.rejects(new OrderService().applyLoyaltyDiscount(id,a.restaurant.id,0.5),/greater/);
   prisma.loyaltyLedger.findFirst=async q=>{assert.equal(q.where.orderId,id);return {id:'existing-redemption'};};
@@ -100,6 +103,7 @@ test('Paid customer profile is rebuilt from tenant cash orders, net of refunds',
   prisma.order.aggregate=async q=>{assert.ok(locked);assert.equal(q.where.restaurantId,a.restaurant.id);assert.equal(q.where.status,'PAID');assert.equal(q.where.payments.some.razorpayPaymentId,null);return {_sum:{totalAmount:30},_count:{id:2},_min:{createdAt:new Date('2026-09-01')},_max:{createdAt:new Date('2026-09-03')}};};
   prisma.payment.aggregate=async q=>{assert.equal(q.where.restaurantId,a.restaurant.id);return {_sum:{refundedAmount:5}};};
   prisma.customerRestaurantProfile.update=async q=>{updated=q.data;};
+  prisma.customer.findUnique=async()=>({crmGeneration:1});
   await new ProfilerService().refreshPurchaseMetrics('c',a.restaurant.id,prisma);
   assert.equal(updated.totalSpend.toString(),'25');assert.equal(updated.aov.toString(),'12.5');assert.equal(updated.totalOrders,2);assert.equal(updated.visitFrequency,2);
 });

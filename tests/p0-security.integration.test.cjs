@@ -131,12 +131,12 @@ test('P0 #3: public checkout rejects unauthenticated loyalty points and customer
   for (const reward of [{ redeemPoints: 1 }, { couponCode: 'CUSTOMER-ONLY' }]) {
     const response = await invoke(reward);
     assert.equal(response.statusCode, 401);
-    assert.match(response.body.error, /authorization is required/i);
+    assert.match(response.body.error, reward.redeemPoints ? /verify your phone/i : /authorization is required/i);
   }
   assert.equal(restaurantLookups, 2);
 });
 
-test('P0 #3: a token for another restaurant cannot authorize public reward redemption', async () => {
+test('P0 #3: a staff token for another restaurant cannot bypass guest phone verification', async () => {
   const controller = new PublicController();
   const restaurant = { id: id(41), slug: 'target-restaurant', isActive: true, settings: { taxPercentage: 0 } };
   const actor = { id: id(42), email: 'owner@example.test', role: 'RESTAURANT_OWNER', restaurantId: id(43), isActive: true };
@@ -160,6 +160,6 @@ test('P0 #3: a token for another restaurant cannot authorize public reward redem
     headers: { authorization: `Bearer ${jwt.sign({ id: actor.id }, process.env.JWT_SECRET)}` },
   }, res);
 
-  assert.equal(response.statusCode, 403);
-  assert.match(response.body.error, /not authorized/i);
+  assert.equal(response.statusCode, 401);
+  assert.match(response.body.error, /verify your phone/i);
 });
