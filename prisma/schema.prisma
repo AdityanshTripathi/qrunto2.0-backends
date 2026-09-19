@@ -28,6 +28,7 @@ model User {
   createdTransfers     StockTransfer[]        @relation("CreatedTransfers")
   wastageRecords       WastageRecord[]
   authRefreshSessions  AuthRefreshSession[]
+  whatsappConnectionAttempts BrandWhatsAppConnectionAttempt[]
 
   @@map("users")
 }
@@ -44,6 +45,8 @@ model Brand {
   loyaltyTiers LoyaltyTier[]
   restaurants  Restaurant[]
   segments     Segment[]
+  whatsappConnectionAttempts BrandWhatsAppConnectionAttempt[]
+  whatsappTemplates          BrandWhatsAppTemplate[]
 
   @@map("brands")
 }
@@ -1159,10 +1162,82 @@ model BrandWhatsAppConnection {
   phoneNumberId        String   @unique @map("phone_number_id")
   encryptedAccessToken String   @map("encrypted_access_token")
   languageCode         String   @default("en_US") @map("language_code")
+  wabaId               String?  @map("waba_id")
+  metaBusinessId       String?  @map("meta_business_id")
+  displayName          String?  @map("display_name")
+  displayPhoneNumber   String?  @map("display_phone_number")
+  status               WhatsAppConnectionStatus @default(LEGACY_CONNECTED)
+  source               WhatsAppConnectionSource @default(MANUAL)
+  tokenExpiresAt       DateTime? @map("token_expires_at")
+  connectedAt          DateTime? @map("connected_at")
+  lastValidatedAt      DateTime? @map("last_validated_at")
+  lastTemplateSyncAt   DateTime? @map("last_template_sync_at")
+  lastErrorCode        String?  @map("last_error_code")
+  lastErrorMessage     String?  @map("last_error_message")
   createdAt            DateTime @default(now()) @map("created_at")
   updatedAt            DateTime @updatedAt @map("updated_at")
 
+  @@index([wabaId])
+  @@index([status])
   @@map("brand_whatsapp_connections")
+}
+
+model BrandWhatsAppConnectionAttempt {
+  id          String   @id @default(uuid())
+  brandId     String   @map("brand_id")
+  actorUserId String   @map("actor_user_id")
+  stateHash   String   @unique @map("state_hash")
+  expiresAt   DateTime @map("expires_at")
+  consumedAt  DateTime? @map("consumed_at")
+  completedAt DateTime? @map("completed_at")
+  failedAt    DateTime? @map("failed_at")
+  failureCode String?  @map("failure_code")
+  failureMessage String? @map("failure_message")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  actor User  @relation(fields: [actorUserId], references: [id], onDelete: Cascade)
+
+  @@index([brandId, actorUserId, createdAt])
+  @@index([expiresAt])
+  @@index([brandId, consumedAt])
+  @@map("brand_whatsapp_connection_attempts")
+}
+
+model BrandWhatsAppTemplate {
+  id              String   @id @default(uuid())
+  brandId         String   @map("brand_id")
+  wabaId          String   @map("waba_id")
+  metaTemplateId  String?  @map("meta_template_id")
+  templateName    String   @map("template_name")
+  languageCode    String   @map("language_code")
+  category        String?
+  approvalStatus  String   @map("approval_status")
+  componentsJson  Json?    @map("components_json")
+  parameterSchema Json?    @map("parameter_schema")
+  lastSyncedAt    DateTime @map("last_synced_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Cascade)
+
+  @@unique([brandId, wabaId, templateName, languageCode])
+  @@index([brandId, approvalStatus, languageCode])
+  @@index([metaTemplateId])
+  @@map("brand_whatsapp_templates")
+}
+
+enum WhatsAppConnectionStatus {
+  LEGACY_CONNECTED
+  CONNECTED
+  NEEDS_REAUTH
+  DISCONNECTED
+  ERROR
+}
+
+enum WhatsAppConnectionSource {
+  MANUAL
+  EMBEDDED_SIGNUP
 }
 
 enum CampaignStatus {
