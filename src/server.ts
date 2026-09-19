@@ -71,7 +71,10 @@ void DeductionQueueService.processPending()
 app.use('/api/internal/cron/crm', cronRouter);
 
 app.use(async (req, res, next) => {
-  if (req.path === '/health' || req.path === '/ready') return next();
+  // Database-backed authentication must remain available while realtime Redis
+  // is reconnecting; Socket.IO keeps its own dependency check below.
+  const authRequest = req.path === '/api/auth' || req.path.startsWith('/api/auth/');
+  if (req.path === '/health' || req.path === '/ready' || authRequest) return next();
   try {
     await sharedRedis.initializeAdapter(io);
     next();

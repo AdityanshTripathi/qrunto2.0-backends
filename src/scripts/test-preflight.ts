@@ -18,7 +18,8 @@ async function main() {
   await once(server, 'listening');
   const address = server.address();
   assert.ok(address && typeof address !== 'string');
-  const url = `http://127.0.0.1:${address.port}/api/orders/stats`;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const url = `${baseUrl}/api/orders/stats`;
   try {
     const startupWaits = waits;
     const start = performance.now();
@@ -41,6 +42,19 @@ async function main() {
       headers: { Origin: 'https://untrusted.example' }, signal: AbortSignal.timeout(1000) });
     assert.equal(rejected.headers.get('access-control-allow-origin'), null);
     assert.equal(waits, startupWaits);
+    // Authentication must remain available when realtime Redis is stalled.
+    // A malformed body stops before the database, making this an isolated
+    // regression test for the HTTP dependency gate rather than credentials.
+    const authStart = performance.now();
+    const authResponse = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(1000),
+      headers: { 'Content-Type': 'application/json', Origin: 'https://ordio.in' },
+      body: '{}',
+    });
+    assert.equal(authResponse.status, 400);
+    assert.equal(waits, startupWaits, 'Auth must not enter the realtime dependency middleware');
+    assert.ok(performance.now() - authStart < 1000);
     // Ordinary routes still wait for dependencies; caller cancellation is bounded.
     await assert.rejects(fetch(url, { signal: AbortSignal.timeout(50) }), { name: 'TimeoutError' });
     assert.equal(waits, startupWaits + 1);
