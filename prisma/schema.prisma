@@ -1160,6 +1160,7 @@ model CrmLoyaltyPolicy {
 model BrandWhatsAppConnection {
   brandId              String   @id @map("brand_id")
   phoneNumberId        String   @unique @map("phone_number_id")
+  connectionVersion    String   @unique @default(uuid()) @db.Uuid @map("connection_version")
   encryptedAccessToken String   @map("encrypted_access_token")
   languageCode         String   @default("en_US") @map("language_code")
   wabaId               String?  @map("waba_id")
