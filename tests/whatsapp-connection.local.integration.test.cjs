@@ -4,6 +4,11 @@ const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
 const test = require('node:test');
 
+if (!process.env.ORDIO_LOCAL_TEST_DATABASE_URL) {
+  test('WhatsApp connection service persists and protects local ordio_dev records', {
+    skip: 'Set ORDIO_LOCAL_TEST_DATABASE_URL to run this local database integration test.',
+  }, () => {});
+} else {
 // This import validates ORDIO_LOCAL_TEST_DATABASE_URL before loading Prisma or the service.
 const { prisma, pool } = require('./support/local-ordio-dev.cjs');
 const { WhatsAppConnectionService } = require('../dist/services/crm/whatsapp-connection.service');
@@ -161,3 +166,4 @@ test('WhatsApp connection service persists and protects local ordio_dev records'
     }
   }
 });
+}

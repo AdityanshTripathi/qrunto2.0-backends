@@ -38,7 +38,14 @@ test('CRM v2: latest opt-out blocks marketing regardless of earlier opt-in', asy
   assert.equal(await new ConsentService().canSendWhatsAppMarketing('guest'), false);
 });
 
-test('CRM v2: brand WhatsApp token is encrypted at rest and never returned in status', async () => {
+test('CRM v2: brand WhatsApp token is encrypted at rest and never returned in status', async (t) => {
+  prisma.brandWhatsAppConnection.create = async () => {};
+  t.mock.method(prisma.brandWhatsAppConnection, 'create', async ({ data }) =>
+    prisma.brandWhatsAppConnection.upsert({
+      where: { brandId: data.brandId },
+      create: data,
+      update: data,
+    }));
   process.env.CRM_CREDENTIAL_ENCRYPTION_KEY = 'ab'.repeat(32);
   let row;
   prisma.brandWhatsAppConnection.upsert = async ({ create }) => { row = create; return create; };
