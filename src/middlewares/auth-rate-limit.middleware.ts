@@ -18,3 +18,12 @@ export const registrationRateLimiter = rateLimit({
   legacyHeaders: false,
   message: tooManyRequests,
 });
+
+export const whatsappSignupRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  keyGenerator: req => req.user?.id ?? 'unauthenticated',
+  message: tooManyRequests,
+});

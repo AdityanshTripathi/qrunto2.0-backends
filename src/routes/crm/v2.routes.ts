@@ -4,8 +4,14 @@ import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { authenticate, AuthenticatedRequest, requireRestaurantContext, requireRoles } from '../../middlewares/auth.middleware';
+import { whatsappSignupRateLimiter } from '../../middlewares/auth-rate-limit.middleware';
+import { logSafeError } from '../../lib/safe-error';
 import { ConsentService } from '../../services/crm/consent.service';
 import { CampaignService } from '../../services/crm/campaign.service';
+import {
+  EmbeddedSignupError,
+  MetaEmbeddedSignupService,
+} from '../../services/crm/meta-embedded-signup.service';
 import { WhatsAppConnectionService } from '../../services/crm/whatsapp-connection.service';
 
 const router = Router();
@@ -146,6 +152,48 @@ router.get('/whatsapp-status', async (req: AuthenticatedRequest, res) => {
   const brandId = await brandFor(req, res); if (!brandId) return;
   const status = await new WhatsAppConnectionService().status(brandId);
   res.json({ ...status, authTemplateConfigured: Boolean(process.env.WHATSAPP_AUTH_TEMPLATE_NAME) });
+});
+
+function embeddedSignupErrorResponse(res: Response, error: unknown, stage: string, context: Record<string, unknown>): void {
+  if (error instanceof EmbeddedSignupError) {
+    res.status(error.status).json({ error: error.publicMessage, code: error.code });
+    return;
+  }
+  logSafeError(stage, error, 'crm', context);
+  res.status(500).json({ error: 'WhatsApp signup could not be completed', code: 'WHATSAPP_SIGNUP_FAILED' });
+}
+
+router.post('/whatsapp/connect/start', whatsappSignupRateLimiter, async (req: AuthenticatedRequest, res) => {
+  const brandId = await brandFor(req, res); if (!brandId) return;
+  try {
+    const signup = await new MetaEmbeddedSignupService().start(brandId, req.user!.id);
+    res.status(201).json(signup);
+  } catch (error) {
+    embeddedSignupErrorResponse(res, error, 'whatsapp_signup_start', { brandId, actorUserId: req.user!.id });
+  }
+});
+
+router.post('/whatsapp/connect/complete', whatsappSignupRateLimiter, async (req: AuthenticatedRequest, res) => {
+  const brandId = await brandFor(req, res); if (!brandId) return;
+  const parsed = z.object({
+    code: z.string().trim().min(1).max(2048),
+    state: z.string().regex(/^[A-Za-z0-9_-]{32,128}$/),
+  }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid WhatsApp signup completion request', code: 'WHATSAPP_SIGNUP_REQUEST_INVALID' });
+    return;
+  }
+  try {
+    await new MetaEmbeddedSignupService().complete(
+      brandId,
+      req.user!.id,
+      parsed.data.state,
+      parsed.data.code,
+    );
+    res.json({ connected: true });
+  } catch (error) {
+    embeddedSignupErrorResponse(res, error, 'whatsapp_signup_complete', { brandId, actorUserId: req.user!.id });
+  }
 });
 
 router.put('/whatsapp-connection', async (req: AuthenticatedRequest, res) => {
