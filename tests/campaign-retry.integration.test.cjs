@@ -72,7 +72,7 @@ test('Campaign retry: completed campaign and DELIVERED recipient are never dispa
   const state = harness(t, { recipients: [{ customerId: 'sent-customer', status: 'DELIVERED', attemptCount: 1 }] });
   const delivered = [];
   t.mock.method(CampaignService.prototype, 'deliverRecipient', async input => delivered.push(input));
-  const service = new CampaignService();
+  const service = new CampaignService({ validate: async () => ({}) });
   assert.deepEqual(await service.processQueuedCampaigns(), { processed: 1, failed: 0 });
   assert.equal(state.campaign.status, 'COMPLETED');
   assert.deepEqual(delivered.map(row => row.customerId), ['retry-customer']);
@@ -89,7 +89,7 @@ test('Campaign retry: only FAILED/PENDING recipients retry with stable idempoten
   ] });
   const delivered = [];
   t.mock.method(CampaignService.prototype, 'deliverRecipient', async input => delivered.push(input));
-  assert.deepEqual(await new CampaignService().processQueuedCampaigns(), { processed: 1, failed: 0 });
+  assert.deepEqual(await new CampaignService({ validate: async () => ({}) }).processQueuedCampaigns(), { processed: 1, failed: 0 });
   assert.equal(state.campaign.attemptCount, 2); assert.equal(state.campaign.status, 'COMPLETED');
   assert.equal(state.logs.get('sent-customer').attemptCount, 1);
   assert.equal(state.logs.get('retry-customer').attemptCount, 2);
@@ -105,7 +105,7 @@ test('Campaign retry: campaign and recipient attempts stop permanently at the bo
   const state = harness(t);
   let deliveries = 0;
   t.mock.method(CampaignService.prototype, 'deliverRecipient', async () => { deliveries++; throw new Error('test failure'); });
-  const service = new CampaignService();
+  const service = new CampaignService({ validate: async () => ({}) });
   for (let attempt = 1; attempt <= 3; attempt++) {
     await assert.rejects(service.processQueuedCampaigns(), error => error.code === 'CRM_PARTIAL_FAILURE');
     assert.equal(state.campaign.attemptCount, attempt); assert.equal(state.campaign.status, 'FAILED');

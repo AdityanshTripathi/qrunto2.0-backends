@@ -703,6 +703,13 @@ model Campaign {
   segmentId       String?         @map("segment_id")
   templateSubject String?         @map("template_subject")
   templateBody    String          @map("template_body")
+  // Nullable additive fields preserve legacy drafts while making new WhatsApp
+  // campaigns prove the exact cached template and connection used at validation.
+  whatsappTemplateId         String? @map("whatsapp_template_id")
+  whatsappTemplateLanguage   String? @map("whatsapp_template_language")
+  whatsappTemplateCategory   String? @map("whatsapp_template_category")
+  whatsappTemplateParameters Json?   @map("whatsapp_template_parameters")
+  whatsappConnectionVersion  String? @db.Uuid @map("whatsapp_connection_version")
   status          CampaignStatus  @default(DRAFT)
   scheduledAt     DateTime        @map("scheduled_at")
   sentCount       Int             @default(0) @map("sent_count")
@@ -718,6 +725,7 @@ model Campaign {
   @@index([brandId, createdAt, id])
   @@index([status, scheduledAt, id])
   @@index([status, updatedAt])
+  @@index([brandId, whatsappTemplateId])
   @@map("campaigns")
 }
 

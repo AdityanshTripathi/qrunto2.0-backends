@@ -34,6 +34,13 @@ export interface WhatsAppConnectionIdentity {
   connectionVersion: string;
 }
 
+export interface ActiveWhatsAppTemplateSnapshot extends WhatsAppConnectionIdentity {
+  brandId: string;
+  wabaId: string;
+  phoneNumberId: string;
+  accessToken: string;
+}
+
 export type WhatsAppConnectionErrorCode =
   | 'META_AUTHENTICATION_FAILED'
   | 'META_PERMISSION_DENIED'
@@ -103,6 +110,25 @@ function connectionUnavailable(status: WhatsAppConnectionStatus): Error {
 }
 
 export class WhatsAppConnectionService {
+  async getActiveTemplateSnapshot(brandId: string): Promise<ActiveWhatsAppTemplateSnapshot> {
+    const row = await prisma.brandWhatsAppConnection.findUnique({
+      where: { brandId }, select: {
+        brandId: true, wabaId: true, phoneNumberId: true, connectionVersion: true, encryptedAccessToken: true,
+        status: true, source: true,
+      },
+    });
+    if (!row || row.status !== WhatsAppConnectionStatus.CONNECTED ||
+        row.source !== WhatsAppConnectionSource.EMBEDDED_SIGNUP || !row.wabaId) {
+      throw Object.assign(new Error('WhatsApp verified connection is unavailable'), {
+        code: 'WHATSAPP_VERIFIED_CONNECTION_REQUIRED',
+      });
+    }
+    return {
+      brandId: row.brandId, wabaId: row.wabaId, phoneNumberId: row.phoneNumberId, connectionVersion: row.connectionVersion,
+      accessToken: decrypt(row.encryptedAccessToken),
+    };
+  }
+
   async get(brandId: string): Promise<BrandWhatsAppProvider | null> {
     const row = await prisma.brandWhatsAppConnection.findUnique({
       where: { brandId }, select: { phoneNumberId: true, encryptedAccessToken: true, languageCode: true, status: true },

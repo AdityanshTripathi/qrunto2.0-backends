@@ -58,6 +58,24 @@ test('connection service: unusable statuses reject before credential decryption'
     error.code === 'WHATSAPP_CONNECTION_UNAVAILABLE' && error.status === 'NEEDS_REAUTH');
 });
 
+test('connection service: template snapshot is restricted to active verified WABA credentials', async t => {
+  let row;
+  t.mock.method(prisma.brandWhatsAppConnection, 'upsert', async ({ create }) => { row = { ...create }; return row; });
+  t.mock.method(prisma.brandWhatsAppConnection, 'findUnique', async () => row);
+  const service = new WhatsAppConnectionService();
+  await service.saveVerifiedEmbeddedSignupConnection('brand-a', {
+    phoneNumberId: '1234567890', accessToken: 'verified-template-token', languageCode: 'en_US', wabaId: 'waba-a',
+  });
+  const value = await service.getActiveTemplateSnapshot('brand-a');
+  assert.equal(value.brandId, 'brand-a');
+  assert.equal(value.wabaId, 'waba-a');
+  assert.equal(value.phoneNumberId, '1234567890');
+  assert.equal(value.accessToken, 'verified-template-token');
+  row = connection({ status: 'LEGACY_CONNECTED', source: 'MANUAL', wabaId: null });
+  await assert.rejects(service.getActiveTemplateSnapshot('brand-a'),
+    error => error.code === 'WHATSAPP_VERIFIED_CONNECTION_REQUIRED');
+});
+
 test('connection service: verified Embedded Signup persistence encrypts and marks connected', async t => {
   const inputs = [];
   t.mock.method(prisma.brandWhatsAppConnection, 'upsert', async value => { inputs.push(value); return {}; });

@@ -11,7 +11,11 @@ const CreateCampaignSchema = z.object({
   channel: z.literal('WHATSAPP'),
   segmentId: z.string().uuid('Invalid segment ID').optional().nullable(),
   templateSubject: z.string().max(100).optional().nullable(),
-  templateBody: z.string().regex(/^[a-z0-9_]{3,100}$/, 'Use an approved WhatsApp template name'),
+  templateBody: z.string().regex(/^[a-z0-9_]{3,100}$/, 'Use an approved WhatsApp template name').optional(),
+  whatsappTemplateId: z.string().uuid('Invalid WhatsApp template ID'),
+  whatsappTemplateLanguage: z.string().trim().min(1).max(35),
+  whatsappTemplateCategory: z.string().trim().min(1).max(64),
+  whatsappTemplateParameters: z.record(z.string(), z.string().min(1).max(1024)),
   scheduledAt: z.string().refine((val) => !isNaN(Date.parse(val)), 'Invalid scheduled date'),
 });
 
@@ -90,13 +94,21 @@ export class CampaignController {
         channel: validation.data.channel as CampaignChannel,
         segmentId: validation.data.segmentId,
         templateSubject: validation.data.templateSubject,
-        templateBody: validation.data.templateBody,
+        // The service derives the persisted send name from the verified cache.
+        templateBody: validation.data.templateBody ?? '',
+        whatsappTemplateId: validation.data.whatsappTemplateId,
+        whatsappTemplateLanguage: validation.data.whatsappTemplateLanguage,
+        whatsappTemplateCategory: validation.data.whatsappTemplateCategory,
+        whatsappTemplateParameters: validation.data.whatsappTemplateParameters,
         scheduledAt: localDateTime(validation.data.scheduledAt, zone),
       });
 
       res.status(201).json({ message: campaign.status === 'DRAFT' ? 'Campaign saved as draft' : 'Campaign queued successfully', campaign });
     } catch (err: any) {
       if (err instanceof BusinessDateError) { res.status(400).json({ error: err.message }); return; }
+      if (typeof err?.code === 'string' && err.code.startsWith('WHATSAPP_TEMPLATE_')) {
+        res.status(409).json({ error: err.message, code: err.code }); return;
+      }
       res.status(500).json({ error: 'Internal server error' });
     }
   }

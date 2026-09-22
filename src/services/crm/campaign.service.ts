@@ -3,7 +3,10 @@ import { logSafeError, logStructured, safeError } from '../../lib/safe-error';
 import { CampaignChannel, CampaignStatus, CampaignLogStatus } from '@prisma/client';
 import { ConsentService } from './consent.service';
 import { WhatsAppService } from '../whatsapp.service';
-import { WhatsAppConnectionService } from './whatsapp-connection.service';
+import {
+  buildTemplateComponents,
+  WhatsAppTemplateValidationService,
+} from './whatsapp-template-validation.service';
 
 export interface CreateCampaignInput {
   name: string;
@@ -11,6 +14,10 @@ export interface CreateCampaignInput {
   segmentId?: string | null | undefined;
   templateSubject?: string | null | undefined;
   templateBody: string;
+  whatsappTemplateId: string;
+  whatsappTemplateLanguage: string;
+  whatsappTemplateCategory: string;
+  whatsappTemplateParameters: Record<string, string>;
   scheduledAt: Date;
 }
 
@@ -29,7 +36,14 @@ interface PageInfo {
   hasMore: boolean;
 }
 
+function withoutInternalConnectionVersion<T extends { whatsappConnectionVersion?: unknown }>(campaign: T): Omit<T, 'whatsappConnectionVersion'> {
+  const { whatsappConnectionVersion: _internal, ...publicCampaign } = campaign;
+  return publicCampaign;
+}
+
 export class CampaignService {
+  constructor(private readonly templateValidation = new WhatsAppTemplateValidationService()) {}
+
   async createCampaign(brandId: string, data: CreateCampaignInput): Promise<any> {
     if (data.segmentId) {
       const segment = await prisma.segment.findFirst({
@@ -37,18 +51,27 @@ export class CampaignService {
       });
       if (!segment) throw new Error('Segment not found or unauthorized');
     }
-    const connection = await new WhatsAppConnectionService().status(brandId);
-    return prisma.campaign.create({ data: {
+    const verified = await this.templateValidation.prepareNew(brandId, data);
+    const campaign = await prisma.campaign.create({ data: {
       brandId, crmGeneration: 2, name: data.name, channel: data.channel, segmentId: data.segmentId ?? null,
-      templateSubject: data.templateSubject ?? null, templateBody: data.templateBody,
-      status: connection.configured
-        ? CampaignStatus.QUEUED : CampaignStatus.DRAFT,
+      templateSubject: data.templateSubject ?? null, templateBody: verified.template.templateName,
+      whatsappTemplateId: verified.template.id,
+      whatsappTemplateLanguage: verified.template.languageCode,
+      whatsappTemplateCategory: verified.template.category,
+      whatsappTemplateParameters: verified.parameterValues,
+      whatsappConnectionVersion: verified.connectionVersion,
+      status: CampaignStatus.QUEUED,
       scheduledAt: data.scheduledAt,
     } });
+    return withoutInternalConnectionVersion(campaign);
   }
 
   async queueDraft(brandId: string, campaignId: string): Promise<boolean> {
-    if (!(await new WhatsAppConnectionService().status(brandId)).configured) return false;
+    const campaign = await prisma.campaign.findFirst({
+      where: { id: campaignId, brandId, crmGeneration: 2, channel: CampaignChannel.WHATSAPP, status: CampaignStatus.DRAFT },
+    });
+    if (!campaign) return false;
+    try { await this.templateValidation.validate(brandId, campaign); } catch { return false; }
     const result = await prisma.campaign.updateMany({
       where: { id: campaignId, brandId, crmGeneration: 2, channel: CampaignChannel.WHATSAPP, status: CampaignStatus.DRAFT },
       data: { status: CampaignStatus.QUEUED },
@@ -64,7 +87,7 @@ export class CampaignService {
       ...(page.cursor ? { cursor: { id: page.cursor }, skip: 1 } : {}),
     });
     const hasMore = rows.length > page.limit;
-    const campaigns = hasMore ? rows.slice(0, page.limit) : rows;
+    const campaigns = (hasMore ? rows.slice(0, page.limit) : rows).map(withoutInternalConnectionVersion);
     return {
       campaigns,
       pagination: {
@@ -94,9 +117,12 @@ export class CampaignService {
     if (!await new ConsentService().canSendWhatsAppMarketing(customer.id)) {
       throw new Error('WhatsApp marketing consent is unavailable or withdrawn');
     }
-    const provider = await new WhatsAppConnectionService().get(input.brandId);
-    if (!provider) throw new Error('WhatsApp is not connected for this brand');
-    const result = await WhatsAppService.sendTemplateMessage(customer.phone, campaign.templateBody, provider.languageCode, [], provider);
+    const verified = await this.templateValidation.validate(input.brandId, campaign);
+    const components = buildTemplateComponents(verified.schema, verified.parameterValues);
+    const result = await WhatsAppService.sendTemplateMessage(
+      customer.phone, verified.template.templateName, verified.template.languageCode, components,
+      { phoneNumberId: verified.current.phoneNumberId, accessToken: verified.current.accessToken },
+    );
     const providerMessageId = result?.messages?.[0]?.id;
     if (typeof providerMessageId === 'string') {
       await prisma.campaignLog.updateMany({
@@ -122,6 +148,17 @@ export class CampaignService {
       where: { id: campaignId, brandId, crmGeneration: 2, status: CampaignStatus.SENDING },
     });
     if (!campaign) throw new Error('Claimed campaign not found');
+
+    try {
+      await this.templateValidation.validate(brandId, campaign);
+    } catch (error) {
+      logSafeError('campaign.template.validation', error, 'crm', { campaignId, brandId });
+      await prisma.campaign.updateMany({
+        where: { id: campaignId, brandId, status: CampaignStatus.SENDING },
+        data: { status: CampaignStatus.FAILED },
+      });
+      return false;
+    }
 
     try {
       let targets: Array<{ id: string }>;

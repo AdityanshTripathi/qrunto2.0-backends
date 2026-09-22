@@ -13,6 +13,11 @@ import {
   MetaEmbeddedSignupService,
 } from '../../services/crm/meta-embedded-signup.service';
 import { WhatsAppConnectionService } from '../../services/crm/whatsapp-connection.service';
+import {
+  CachedWhatsAppTemplate,
+  WhatsAppTemplateSyncError,
+  WhatsAppTemplateSyncService,
+} from '../../services/crm/whatsapp-template-sync.service';
 
 const router = Router();
 router.use(authenticate, requireRoles(['RESTAURANT_OWNER', 'SUPER_ADMIN']), requireRestaurantContext);
@@ -152,6 +157,62 @@ router.get('/whatsapp-status', async (req: AuthenticatedRequest, res) => {
   const brandId = await brandFor(req, res); if (!brandId) return;
   const status = await new WhatsAppConnectionService().status(brandId);
   res.json({ ...status, authTemplateConfigured: Boolean(process.env.WHATSAPP_AUTH_TEMPLATE_NAME) });
+});
+
+function publicTemplate(template: CachedWhatsAppTemplate) {
+  return {
+    id: template.id, name: template.templateName, language: template.languageCode,
+    category: template.category, status: template.approvalStatus,
+    parameterSchema: template.parameterSchema,
+    lastSyncedAt: template.lastSyncedAt,
+    ...(template.createdAt ? { createdAt: template.createdAt } : {}),
+    ...(template.updatedAt ? { updatedAt: template.updatedAt } : {}),
+  };
+}
+
+function templateErrorResponse(res: Response, error: unknown, brandId: string): void {
+  if (error instanceof WhatsAppTemplateSyncError) {
+    res.status(error.status).json({ error: error.message, code: error.code });
+    return;
+  }
+  const code = typeof (error as { code?: unknown })?.code === 'string'
+    ? (error as { code: string }).code : 'WHATSAPP_TEMPLATE_SYNC_FAILED';
+  const status = code === 'WHATSAPP_VERIFIED_CONNECTION_REQUIRED' ? 409 : 500;
+  logSafeError('whatsapp_template_cache', error, 'crm', { brandId });
+  res.status(status).json({
+    error: status === 409 ? 'A verified WhatsApp connection is required' : 'WhatsApp template operation failed',
+    code: status === 409 ? code : 'WHATSAPP_TEMPLATE_SYNC_FAILED',
+  });
+}
+
+router.post('/whatsapp/templates/sync', whatsappSignupRateLimiter, async (req: AuthenticatedRequest, res) => {
+  const brandId = await brandFor(req, res); if (!brandId) return;
+  try {
+    const result = await new WhatsAppTemplateSyncService().sync(brandId);
+    res.json(result);
+  } catch (error) { templateErrorResponse(res, error, brandId); }
+});
+
+router.get('/whatsapp/templates', async (req: AuthenticatedRequest, res) => {
+  const brandId = await brandFor(req, res); if (!brandId) return;
+  try {
+    const [templates, status] = await Promise.all([
+      new WhatsAppTemplateSyncService().listCurrent(brandId),
+      new WhatsAppConnectionService().status(brandId),
+    ]);
+    res.json({
+      status: status.status, lastTemplateSyncAt: status.lastTemplateSyncAt,
+      templates: templates.map(publicTemplate),
+    });
+  } catch (error) { templateErrorResponse(res, error, brandId); }
+});
+
+router.get('/whatsapp/templates/eligible', async (req: AuthenticatedRequest, res) => {
+  const brandId = await brandFor(req, res); if (!brandId) return;
+  try {
+    const templates = await new WhatsAppTemplateSyncService().listCurrent(brandId, true);
+    res.json({ templates: templates.map(publicTemplate) });
+  } catch (error) { templateErrorResponse(res, error, brandId); }
 });
 
 function embeddedSignupErrorResponse(res: Response, error: unknown, stage: string, context: Record<string, unknown>): void {
