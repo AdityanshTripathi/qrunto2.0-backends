@@ -109,9 +109,10 @@ test('Business data: menu has real recipe costs or null, never fabricated views/
   assert.equal(data.menuPerformance.length, 2); assert.ok(data.menuPerformance.every(item => item.views === null && item.conversion === null));
 });
 
-test('Business data: unconfigured campaign delivery cannot record successful sends', async t => {
+test('Business data: unconfigured campaign fails before recipient delivery', async t => {
   const campaign = { id: 'campaign', brandId: 'brand', crmGeneration: 2, name: 'Test', channel: 'WHATSAPP', segmentId: null, status: 'QUEUED', attemptCount: 0 };
-  const log = { campaignId: 'campaign', customerId: 'customer', status: 'PENDING', attemptCount: 0, error: null };
+  let recipientSelectionCalls = 0;
+  let campaignLogCalls = 0;
   prisma.campaign.updateMany = async q => {
     assert.equal(q.where.brandId, 'brand');
     if (q.where.status?.in && !q.where.status.in.includes(campaign.status)) return { count: 0 };
@@ -121,20 +122,16 @@ test('Business data: unconfigured campaign delivery cannot record successful sen
     return { count: 1 };
   };
   prisma.campaign.findFirst = async q => { assert.equal(q.where.brandId, 'brand'); return campaign; };
-  prisma.customer.findMany = async q => { assert.deepEqual(q.where, { brandId: 'brand', crmGeneration: 2, phoneVerifiedAt: { not: null } }); return [{ id: 'customer' }]; };
+  prisma.customer.findMany = async () => { recipientSelectionCalls++; return [{ id: 'customer' }]; };
   prisma.customer.findFirst = async () => ({ id: 'customer', brandId: 'brand', crmGeneration: 2, phoneVerifiedAt: new Date(), phone: '911234567890' });
   prisma.brandWhatsAppConnection.findUnique = async () => null;
   prisma.customerConsent.findFirst = async () => ({ granted: true });
-  prisma.campaignLog.createMany = async () => ({ count: 1 });
-  prisma.campaignLog.findMany = async () => [log];
-  prisma.campaignLog.updateMany = async q => {
-    if (q.where.attemptCount !== undefined && q.where.attemptCount !== log.attemptCount) return { count: 0 };
-    if (q.data.attemptCount?.increment) log.attemptCount += q.data.attemptCount.increment;
-    Object.assign(log, q.data, { attemptCount: log.attemptCount });
-    return { count: 1 };
-  };
+  prisma.campaignLog.createMany = async () => { campaignLogCalls++; return { count: 1 }; };
+  prisma.campaignLog.findMany = async () => { campaignLogCalls++; return []; };
+  prisma.campaignLog.updateMany = async () => { campaignLogCalls++; return { count: 1 }; };
   t.mock.method(console, 'log', () => {}); t.mock.method(console, 'error', () => {});
   assert.equal(await new CampaignService().sendCampaign('campaign', 'brand'), false);
-  assert.equal(log.status, 'FAILED'); assert.equal(log.attemptCount, 1);
   assert.equal(campaign.status, 'FAILED'); assert.equal(campaign.attemptCount, 1);
+  assert.equal(recipientSelectionCalls, 0);
+  assert.equal(campaignLogCalls, 0);
 });
