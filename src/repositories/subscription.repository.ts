@@ -1,5 +1,6 @@
-import { prisma } from '../lib/prisma';
+import { prisma, databasePoolContext } from '../lib/prisma';
 import { Subscription, SubscriptionStatus, SubscriptionPlan } from '@prisma/client';
+import { observeOperation } from '../lib/operation-timing';
 
 export type SubscriptionWithPlan = Subscription & { plan: SubscriptionPlan };
 
@@ -20,7 +21,7 @@ export class SubscriptionRepository {
   }
 
   async findActiveSubscriptionByRestaurantId(restaurantId: string): Promise<SubscriptionWithPlan | null> {
-    return prisma.subscription.findFirst({
+    return observeOperation('database.subscription.active.lookup', () => prisma.subscription.findFirst({
       where: {
         restaurantId,
         status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.PENDING] },
@@ -31,6 +32,6 @@ export class SubscriptionRepository {
       orderBy: {
         createdAt: 'desc',
       },
-    }) as Promise<SubscriptionWithPlan | null>;
+    }), { context: databasePoolContext }) as Promise<SubscriptionWithPlan | null>;
   }
 }

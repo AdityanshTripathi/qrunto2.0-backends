@@ -1,7 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { UserRole } from '@prisma/client';
-import { prisma } from '../lib/prisma';
+import { prisma, databasePoolContext } from '../lib/prisma';
+import { observeOperation } from '../lib/operation-timing';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -23,9 +24,10 @@ export interface AuthenticatedRequest extends Request {
 export const resolveAccessToken = async (token: string): Promise<DecodedUser> => {
   const decoded = jwt.verify(token, JWT_SECRET) as { id?: unknown };
   if (typeof decoded.id !== 'string') throw new Error('Invalid token subject');
+  const userId = decoded.id;
 
-  const user = await prisma.user.findUnique({
-    where: { id: decoded.id },
+  const user = await observeOperation('database.auth.user.lookup', () => prisma.user.findUnique({
+    where: { id: userId },
     select: {
       id: true,
       email: true,
@@ -39,21 +41,26 @@ export const resolveAccessToken = async (token: string): Promise<DecodedUser> =>
         take: 1,
       },
     },
-  });
+  }), { context: databasePoolContext });
 
   if (user) {
     if (user.isActive === false) throw new Error('User account is disabled');
     let restaurantId = user.restaurants[0]?.id;
+    const primaryRestaurantId = user.restaurantId;
 
     // Never trust a stored primary restaurant if that restaurant is inactive.
-    if (user.restaurantId) {
-      const activePrimaryRestaurant = await prisma.restaurant.findFirst({
-        where: {
-          id: user.restaurantId,
-          isActive: true,
-        },
-        select: { id: true },
-      });
+    if (primaryRestaurantId) {
+      const activePrimaryRestaurant = await observeOperation(
+        'database.auth.primary-restaurant.lookup',
+        () => prisma.restaurant.findFirst({
+          where: {
+            id: primaryRestaurantId,
+            isActive: true,
+          },
+          select: { id: true },
+        }),
+        { context: databasePoolContext },
+      );
 
       if (activePrimaryRestaurant) {
         restaurantId = activePrimaryRestaurant.id;
@@ -67,10 +74,10 @@ export const resolveAccessToken = async (token: string): Promise<DecodedUser> =>
     };
   }
 
-  const waiter = await prisma.waiter.findUnique({
-    where: { id: decoded.id },
+  const waiter = await observeOperation('database.auth.waiter.lookup', () => prisma.waiter.findUnique({
+    where: { id: userId },
     select: { id: true, email: true, restaurantId: true, isActive: true },
-  });
+  }), { context: databasePoolContext });
   if (!waiter || !waiter.isActive) throw new Error('User account not found or disabled');
 
   return {

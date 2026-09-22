@@ -40,6 +40,7 @@ import { requestIdMiddleware, traceHttpRequest } from './middlewares/request-id.
 import { installProcessMonitoring } from './lib/process-monitoring';
 import { joinTenantRoom } from './lib/socket-room';
 import { decimalJsonMiddleware } from './middlewares/decimal-json.middleware';
+import { observeOperation } from './lib/operation-timing';
 
 
 const app = express();
@@ -61,7 +62,7 @@ app.set('io', io);
 
 const requiresSharedSocketState = process.env.VERCEL === '1' && process.env.NODE_ENV === 'production';
 
-export const realtimeReady = sharedRedis.initializeAdapter(io);
+export const realtimeReady = observeOperation('redis.adapter.startup', () => sharedRedis.initializeAdapter(io));
 // Observe startup failures even before the first request; subsequent requests can retry.
 void realtimeReady.catch(error => logSafeError('adapter.startup', error, 'redis'));
 void DeductionQueueService.processPending()
@@ -76,7 +77,7 @@ app.use(async (req, res, next) => {
   const authRequest = req.path === '/api/auth' || req.path.startsWith('/api/auth/');
   if (req.path === '/health' || req.path === '/ready' || authRequest) return next();
   try {
-    await sharedRedis.initializeAdapter(io);
+    await observeOperation('redis.adapter.request', () => sharedRedis.initializeAdapter(io));
     next();
   } catch (error) {
     logSafeError('request.dependency', error, 'redis', { path: req.path });

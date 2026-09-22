@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
-import { prisma } from '../lib/prisma';
+import { prisma, databasePoolContext } from '../lib/prisma';
+import { observeOperation } from '../lib/operation-timing';
 
 export class NotificationController {
   async getNotifications(req: Request, res: Response): Promise<void> {
@@ -17,7 +18,7 @@ export class NotificationController {
         return;
       }
 
-      const notifications = await prisma.notification.findMany({
+      const notifications = await observeOperation('database.notifications.list', () => prisma.notification.findMany({
         where: isSuperAdmin
           ? { restaurantId: null }
           : { restaurantId: restaurantId as string },
@@ -25,7 +26,7 @@ export class NotificationController {
           createdAt: 'desc',
         },
         take: 50, // Limit to recent 50 notifications
-      });
+      }), { context: databasePoolContext });
 
       res.status(200).json({ notifications });
     } catch (err: any) {

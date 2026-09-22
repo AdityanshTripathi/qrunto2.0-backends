@@ -35,3 +35,13 @@ const globalDatabase = globalThis as typeof globalThis & {
 const database = globalDatabase.qruntoDatabase ??= createDatabase();
 
 export const { pool, prisma } = database;
+
+// These counters are process-local. They identify contention in one warm
+// serverless instance without retaining query text, parameters, or identities.
+export function databasePoolContext(): Record<string, number> {
+  return {
+    poolTotal: pool.totalCount,
+    poolIdle: pool.idleCount,
+    poolWaiting: pool.waitingCount,
+  };
+}

@@ -4,6 +4,7 @@ import { CRMScheduler } from '../../services/crm/scheduler.service';
 import { logSafeError, logStructured } from '../../lib/safe-error';
 import { DeductionQueueService } from '../../services/inventory/deduction-queue.service';
 import { getMonitoringStatus } from '../../services/monitoring.service';
+import { observeOperation } from '../../lib/operation-timing';
 
 const router = Router();
 
@@ -41,8 +42,8 @@ router.get('/', async (req, res) => {
   const startedAt = Date.now();
   logStructured('info', 'crm', 'cron.cycle', 'started', 'CRM cron cycle started');
   try {
-    await DeductionQueueService.processPending();
-    const status = await CRMScheduler.runCycle();
+    await observeOperation('crm.cron.inventory-recovery', () => DeductionQueueService.processPending());
+    const status = await observeOperation('crm.cron.scheduler-cycle', () => CRMScheduler.runCycle());
     logStructured('info', 'crm', 'cron.cycle', status, 'CRM cron cycle finished',
       { durationMs: Date.now() - startedAt });
     res.status(200).json({ status });

@@ -1,13 +1,19 @@
 import { RawMaterialRepository, RawMaterialFilters } from '../../repositories/inventory/raw-material.repository';
 import { SupplierRepository } from '../../repositories/inventory/supplier.repository';
-import { RawMaterial, LedgerActionType } from '@prisma/client';
+import { LedgerActionType, RawMaterial } from '@prisma/client';
+import { observeOperation } from '../../lib/operation-timing';
+import { databasePoolContext } from '../../lib/prisma';
 
 const rawMaterialRepository = new RawMaterialRepository();
 const supplierRepository = new SupplierRepository();
 
 export class RawMaterialService {
   async getRawMaterials(restaurantId: string, filters?: RawMaterialFilters): Promise<RawMaterial[]> {
-    return rawMaterialRepository.findMany(restaurantId, filters);
+    return observeOperation(
+      'database.inventory.raw-materials.list',
+      () => rawMaterialRepository.findMany(restaurantId, filters),
+      { context: databasePoolContext },
+    );
   }
 
   async getRawMaterialById(id: string, restaurantId: string): Promise<RawMaterial | null> {
