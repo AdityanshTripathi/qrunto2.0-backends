@@ -114,11 +114,12 @@ export class WhatsAppConnectionService {
     const row = await prisma.brandWhatsAppConnection.findUnique({
       where: { brandId }, select: {
         brandId: true, wabaId: true, phoneNumberId: true, connectionVersion: true, encryptedAccessToken: true,
-        status: true, source: true,
+        status: true, source: true, tokenExpiresAt: true,
       },
     });
     if (!row || row.status !== WhatsAppConnectionStatus.CONNECTED ||
-        row.source !== WhatsAppConnectionSource.EMBEDDED_SIGNUP || !row.wabaId) {
+        row.source !== WhatsAppConnectionSource.EMBEDDED_SIGNUP || !row.wabaId ||
+        (row.tokenExpiresAt !== null && row.tokenExpiresAt <= new Date())) {
       throw Object.assign(new Error('WhatsApp verified connection is unavailable'), {
         code: 'WHATSAPP_VERIFIED_CONNECTION_REQUIRED',
       });
@@ -127,6 +128,25 @@ export class WhatsAppConnectionService {
       brandId: row.brandId, wabaId: row.wabaId, phoneNumberId: row.phoneNumberId, connectionVersion: row.connectionVersion,
       accessToken: decrypt(row.encryptedAccessToken),
     };
+  }
+
+  // Re-check immediately before external dispatch so a queued campaign fails
+  // closed if its connection was disconnected, rotated, or expired meanwhile.
+  async assertCurrentVerified(brandId: string, identity: WhatsAppConnectionIdentity): Promise<void> {
+    const row = await prisma.brandWhatsAppConnection.findFirst({
+      where: {
+        brandId,
+        connectionVersion: identity.connectionVersion,
+        status: WhatsAppConnectionStatus.CONNECTED,
+        source: WhatsAppConnectionSource.EMBEDDED_SIGNUP,
+        wabaId: { not: null },
+        OR: [{ tokenExpiresAt: null }, { tokenExpiresAt: { gt: new Date() } }],
+      },
+      select: { connectionVersion: true },
+    });
+    if (!row) throw Object.assign(new Error('WhatsApp verified connection is unavailable'), {
+      code: 'WHATSAPP_VERIFIED_CONNECTION_REQUIRED',
+    });
   }
 
   async get(brandId: string): Promise<BrandWhatsAppProvider | null> {
@@ -142,7 +162,7 @@ export class WhatsAppConnectionService {
     const row = await prisma.brandWhatsAppConnection.findUnique({
       where: { brandId }, select: {
         phoneNumberId: true, languageCode: true, status: true, source: true, displayPhoneNumber: true, displayName: true,
-        connectedAt: true, lastValidatedAt: true, lastTemplateSyncAt: true, lastErrorCode: true, lastErrorMessage: true,
+        connectedAt: true, lastValidatedAt: true, lastTemplateSyncAt: true, lastErrorCode: true, lastErrorMessage: true, tokenExpiresAt: true,
       },
     });
     if (!row) return {
@@ -150,12 +170,14 @@ export class WhatsAppConnectionService {
       source: null, displayPhoneNumber: null, displayName: null, connectedAt: null, lastValidatedAt: null,
       lastTemplateSyncAt: null, lastErrorCode: null, lastErrorMessage: null,
     };
+    const expired = row.tokenExpiresAt !== null && row.tokenExpiresAt <= new Date();
     return {
-      configured: usableStatus(row.status), phoneNumberId: row.phoneNumberId, languageCode: row.languageCode,
-      status: row.status, source: row.source, displayPhoneNumber: maskedPhoneNumber(row.displayPhoneNumber),
+      configured: !expired && usableStatus(row.status), phoneNumberId: row.phoneNumberId, languageCode: row.languageCode,
+      status: expired ? WhatsAppConnectionStatus.NEEDS_REAUTH : row.status, source: row.source, displayPhoneNumber: maskedPhoneNumber(row.displayPhoneNumber),
       displayName: row.displayName, connectedAt: row.connectedAt, lastValidatedAt: row.lastValidatedAt,
-      lastTemplateSyncAt: row.lastTemplateSyncAt, lastErrorCode: errorCode(row.lastErrorCode),
-      lastErrorMessage: errorCode(row.lastErrorCode) ? errorMessages[errorCode(row.lastErrorCode)!] : null,
+      lastTemplateSyncAt: row.lastTemplateSyncAt,
+      lastErrorCode: expired ? 'META_AUTHENTICATION_FAILED' : errorCode(row.lastErrorCode),
+      lastErrorMessage: expired ? errorMessages.META_AUTHENTICATION_FAILED : (errorCode(row.lastErrorCode) ? errorMessages[errorCode(row.lastErrorCode)!] : null),
     };
   }
 

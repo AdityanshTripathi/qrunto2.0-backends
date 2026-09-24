@@ -1,6 +1,13 @@
 import 'dotenv/config';
 import { logSafeError, logStructured } from '../lib/safe-error';
 
+// A timeout/transport failure after dispatch began is not proof Meta rejected it.
+// Callers must reconcile this outcome rather than automatically resend it.
+export class WhatsAppProviderOutcomeUncertainError extends Error {
+  readonly code = 'WHATSAPP_PROVIDER_OUTCOME_UNCERTAIN';
+  constructor() { super('WhatsApp provider outcome is uncertain'); }
+}
+
 export class WhatsAppService {
   private static get config() {
     return {
@@ -85,6 +92,7 @@ export class WhatsAppService {
     components: any[] = [],
     provider?: { phoneNumberId: string; accessToken: string }
   ): Promise<any> {
+    let requestStarted = false;
     try {
       const formattedPhone = this.formatPhoneNumber(toPhone);
       const config = provider ? { ...provider, graphApiUrl: this.config.graphApiUrl } : this.providerConfig();
@@ -103,6 +111,7 @@ export class WhatsAppService {
         }
       };
 
+      requestStarted = true;
       const response = await fetch(url, {
         method: 'POST',
         headers: {
@@ -113,7 +122,9 @@ export class WhatsAppService {
         signal: AbortSignal.timeout(10_000),
       });
 
-      const data = await response.json();
+      let data: any;
+      try { data = await response.json(); }
+      catch { throw new WhatsAppProviderOutcomeUncertainError(); }
 
       if (!response.ok) {
         throw Object.assign(new Error('WhatsApp provider rejected template'), { code: `HTTP_${response.status}` });
@@ -123,6 +134,8 @@ export class WhatsAppService {
       return data;
     } catch (error) {
       logSafeError('message.template', error, 'whatsapp');
+      if (error instanceof WhatsAppProviderOutcomeUncertainError) throw error;
+      if (requestStarted && !(error as { code?: unknown })?.code) throw new WhatsAppProviderOutcomeUncertainError();
       throw error;
     }
   }

@@ -15,10 +15,13 @@ function harness(t, { status = 'QUEUED', campaignAttempts = 0, recipients = [] }
     attemptCount: campaignAttempts, scheduledAt: new Date(now.getTime() - 1000), updatedAt: now,
   };
   const customers = [{ id: 'sent-customer' }, { id: 'retry-customer' }];
-  const logs = new Map(recipients.map(row => [row.customerId, { campaignId: campaign.id, ...row }]));
+  const initial = customers.map(customer => ({ customerId: customer.id, status: 'PENDING', attemptCount: 0 }));
+  const logs = new Map([...initial, ...recipients].map(row => [row.customerId, {
+    campaignId: campaign.id, errorDetails: null, lastAttemptAt: null, ...row,
+  }]));
 
   void prisma.campaign.updateMany; void prisma.campaign.findMany; void prisma.campaign.findFirst;
-  void prisma.customer.findMany; void prisma.campaignLog.createMany;
+  void prisma.customer.findMany; void prisma.customer.findFirst; void prisma.campaignLog.createMany;
   void prisma.customerConsent.findFirst;
   void prisma.campaignLog.findMany; void prisma.campaignLog.updateMany;
 
@@ -27,6 +30,7 @@ function harness(t, { status = 'QUEUED', campaignAttempts = 0, recipients = [] }
     if (where.status?.in && !where.status.in.includes(campaign.status)) return { count: 0 };
     if (typeof where.status === 'string' && where.status !== campaign.status) return { count: 0 };
     if (where.attemptCount?.lt !== undefined && campaign.attemptCount >= where.attemptCount.lt) return { count: 0 };
+    if (where.attemptCount?.gte !== undefined && campaign.attemptCount < where.attemptCount.gte) return { count: 0 };
     if (where.updatedAt?.lte && campaign.updatedAt > where.updatedAt.lte) return { count: 0 };
     if (data.attemptCount?.increment) campaign.attemptCount += data.attemptCount.increment;
     for (const key of ['status', 'sentCount', 'failedCount']) if (data[key] !== undefined) campaign[key] = data[key];
@@ -44,6 +48,9 @@ function harness(t, { status = 'QUEUED', campaignAttempts = 0, recipients = [] }
   t.mock.method(prisma.customer, 'findMany', async ({ where }) => {
     assert.deepEqual(where, { brandId: campaign.brandId, crmGeneration: 2, phoneVerifiedAt: { not: null } }); return customers;
   });
+  t.mock.method(prisma.customer, 'findFirst', async ({ where }) => ({
+    id: where.id, brandId: campaign.brandId, crmGeneration: 2, phone: '911234567890', phoneVerifiedAt: new Date(),
+  }));
   t.mock.method(prisma.customerConsent, 'findFirst', async () => ({ granted: true }));
   t.mock.method(prisma.campaignLog, 'createMany', async ({ data, skipDuplicates }) => {
     assert.equal(skipDuplicates, true); let count = 0;
@@ -53,9 +60,10 @@ function harness(t, { status = 'QUEUED', campaignAttempts = 0, recipients = [] }
     return { count };
   });
   t.mock.method(prisma.campaignLog, 'findMany', async ({ where }) => [...logs.values()]
-    .filter(row => row.campaignId === where.campaignId && where.customerId.in.includes(row.customerId))
+    .filter(row => row.campaignId === where.campaignId && (!where.customerId || where.customerId.in.includes(row.customerId)))
     .map(row => ({ customerId: row.customerId, status: row.status, attemptCount: row.attemptCount })));
   t.mock.method(prisma.campaignLog, 'updateMany', async ({ where, data }) => {
+    if (!where.customerId) return { count: 0 };
     const row = logs.get(where.customerId);
     if (!row || row.campaignId !== where.campaignId) return { count: 0 };
     if (where.status?.in && !where.status.in.includes(row.status)) return { count: 0 };
@@ -108,11 +116,12 @@ test('Campaign retry: campaign and recipient attempts stop permanently at the bo
   const service = new CampaignService({ validate: async () => ({}) });
   for (let attempt = 1; attempt <= 3; attempt++) {
     await assert.rejects(service.processQueuedCampaigns(), error => error.code === 'CRM_PARTIAL_FAILURE');
-    assert.equal(state.campaign.attemptCount, attempt); assert.equal(state.campaign.status, 'FAILED');
+    assert.equal(state.campaign.attemptCount, attempt);
+    assert.equal(state.campaign.status, attempt === 3 ? 'EXHAUSTED' : 'FAILED');
   }
   assert.deepEqual(await service.processQueuedCampaigns(), { processed: 0, failed: 0 });
   assert.equal(deliveries, 6); assert.equal(state.logs.size, 2);
-  assert.ok([...state.logs.values()].every(row => row.attemptCount === 3 && row.status === 'FAILED'));
+  assert.ok([...state.logs.values()].every(row => row.attemptCount === 3 && row.status === 'EXHAUSTED'));
 });
 
 test('Campaign retry schema enforces one log per campaign recipient', () => {

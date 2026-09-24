@@ -307,3 +307,24 @@ test('a phone already connected to another brand is unavailable', async t => {
   );
   assert.equal(harness.saves, 0);
 });
+
+
+test('embedded signup reauthorization never silently replaces an existing verified sender', async t => {
+  const { MetaEmbeddedSignupService, EmbeddedSignupError } = require('../dist/services/crm/meta-embedded-signup.service');
+  const stateHash = 'b'.repeat(64);
+  void prisma.brandWhatsAppConnectionAttempt.updateMany; void prisma.brandWhatsAppConnectionAttempt.update;
+  void prisma.brandWhatsAppConnection.findUnique;
+  t.mock.method(prisma.brandWhatsAppConnectionAttempt, 'updateMany', async () => ({ count: 1 }));
+  t.mock.method(prisma.brandWhatsAppConnectionAttempt, 'update', async () => ({}));
+  let lookup = 0;
+  t.mock.method(prisma.brandWhatsAppConnection, 'findUnique', async () => {
+    lookup++;
+    return lookup === 1 ? null : { phoneNumberId: 'old-phone', wabaId: 'old-waba', source: 'EMBEDDED_SIGNUP' };
+  });
+  process.env.WHATSAPP_META_APP_ID = 'app'; process.env.WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID = 'config'; process.env.WHATSAPP_APP_SECRET = 'secret';
+  const service = new MetaEmbeddedSignupService(async () => ({ ok: true, json: async () => ({}) }), { saveVerifiedEmbeddedSignupConnection: async () => { throw new Error('must not persist'); } });
+  t.mock.method(service, 'exchangeCode', async () => ({ accessToken: 'token', tokenExpiresAt: null }));
+  t.mock.method(service, 'verifyConnection', async () => ({ phoneNumberId: 'new-phone', wabaId: 'new-waba', accessToken: 'token', languageCode: 'en_US' }));
+  await assert.rejects(service.complete('brand-a', 'user-a', 'state', 'code'), error => error instanceof EmbeddedSignupError && error.code === 'WHATSAPP_REAUTH_IDENTITY_MISMATCH');
+  delete process.env.WHATSAPP_META_APP_ID; delete process.env.WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID; delete process.env.WHATSAPP_APP_SECRET;
+});

@@ -5,6 +5,8 @@ import { createHmac, timingSafeEqual, randomUUID } from 'node:crypto';
 import { prisma } from '../lib/prisma';
 import { ConsentService } from '../services/crm/consent.service';
 import { normalizeGuestPhone } from '../services/crm/phone-verification.service';
+import { CampaignLogStatus } from '@prisma/client';
+import { CampaignService } from '../services/crm/campaign.service';
 
 const router = Router();
 
@@ -62,13 +64,14 @@ router.post('/', async (req: Request, res: Response) => {
       for (const entry of body.entry ?? []) for (const change of entry.changes ?? []) {
         for (const status of change.value?.statuses ?? []) {
           if (typeof status.id !== 'string') continue;
-          const next = status.status === 'read' ? 'READ' : status.status === 'delivered' ? 'DELIVERED' : status.status === 'failed' ? 'FAILED' : null;
+          const next = status.status === 'read' ? CampaignLogStatus.READ : status.status === 'delivered' ? CampaignLogStatus.DELIVERED :
+            status.status === 'sent' ? CampaignLogStatus.SENT : status.status === 'failed' ? CampaignLogStatus.FAILED : null;
           if (!next) continue;
-          await prisma.campaignLog.updateMany({
-            where: { providerMessageId: status.id },
-            data: { status: next, ...(next === 'DELIVERED' ? { deliveredAt: new Date() } : {}),
-              ...(next === 'READ' ? { readAt: new Date() } : {}) },
-          });
+          const senderId = change.value?.metadata?.phone_number_id;
+          // Status transitions must be tenant-scoped by the sender identity.
+          // A signed payload without this metadata is not safe to apply.
+          if (typeof senderId !== 'string') continue;
+          await new CampaignService().applyWebhookStatus(status.id, next, senderId);
         }
         for (const message of change.value?.messages ?? []) {
           if (typeof message.from !== 'string' || typeof message.text?.body !== 'string') continue;

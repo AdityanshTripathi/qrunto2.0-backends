@@ -211,3 +211,17 @@ test('connection service: explicit disconnect is limited to a matching connectio
   assert.equal(await new WhatsAppConnectionService().disconnect('brand-a', identity), true);
   assert.deepEqual(where, { brandId: 'brand-a', ...identity });
 });
+
+test('connection service: expired verified credentials fail closed and status requires reauthorization', async t => {
+  const expired = connection({
+    status: 'CONNECTED', source: 'EMBEDDED_SIGNUP', wabaId: 'waba-a',
+    tokenExpiresAt: new Date(Date.now() - 1000), encryptedAccessToken: 'not-decrypted',
+  });
+  t.mock.method(prisma.brandWhatsAppConnection, 'findUnique', async () => expired);
+  await assert.rejects(new WhatsAppConnectionService().getActiveTemplateSnapshot('brand-a'), error =>
+    error.code === 'WHATSAPP_VERIFIED_CONNECTION_REQUIRED');
+  const status = await new WhatsAppConnectionService().status('brand-a');
+  assert.equal(status.configured, false);
+  assert.equal(status.status, 'NEEDS_REAUTH');
+  assert.equal(status.lastErrorCode, 'META_AUTHENTICATION_FAILED');
+});

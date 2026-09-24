@@ -91,7 +91,10 @@ test('P3: campaign and recipient lists use bounded duplicate-free cursor pages',
 });
 
 test('P3: campaign statistics aggregate in PostgreSQL instead of loading every campaign', async () => {
-  prisma.user.findUnique = async () => ({ restaurants: [{ brandId: 'brand-1' }] });
+  prisma.restaurant.findFirst = async query => {
+    assert.deepEqual(query.where, { id: 'restaurant-1', isActive: true });
+    return { id: 'restaurant-1', brandId: 'brand-1' };
+  };
   prisma.campaign.findMany = async () => assert.fail('campaign stats must not load raw campaigns');
   prisma.campaign.groupBy = async query => {
     assert.deepEqual(query.by, ['channel', 'status']);
@@ -103,7 +106,7 @@ test('P3: campaign statistics aggregate in PostgreSQL instead of loading every c
     ];
   };
   const res = response();
-  await new CampaignController().getCampaignStats({ user: { id: 'user-1' }, query: {} }, res);
+  await new CampaignController().getCampaignStats({ user: { id: 'user-1', restaurantId: 'restaurant-1' }, query: {} }, res);
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.body, {
     totalCampaigns: 6, totalSent: 24, totalFailed: 2,

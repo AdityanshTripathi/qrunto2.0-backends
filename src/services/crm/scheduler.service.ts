@@ -73,7 +73,7 @@ export class CRMScheduler {
 
       const jobs = [
         { name: 'segments', period: 4 * 60 * 60, run: () => this.runEvaluations() },
-        { name: 'campaigns', period: 60, run: () => campaignService.processQueuedCampaigns() },
+        { name: 'campaigns', period: 60, run: () => this.runCampaigns() },
         { name: 'occasions', period: 24 * 60 * 60, run: () => occasionService.checkAndSendOccasionMessages() },
       ];
       let ran = false;
@@ -236,6 +236,37 @@ export class CRMScheduler {
       occasionInterval = null;
     }
     logStructured('info', 'crm', 'scheduler.stop', 'stopped', 'Background scheduler stopped');
+  }
+
+  private static async runCampaigns(): Promise<void> {
+    // Reconcile stale claims before new atomic claims. A stale provider request is
+    // never retried automatically; the service moves it to reconciliation.
+    await campaignService.recoverStaleCampaignWork();
+    // sendCampaign performs the atomic QUEUED/FAILED -> SENDING claim, so separate
+    // scheduler instances cannot dispatch the same campaign twice.
+    const campaigns = await prisma.campaign.findMany({
+      where: {
+        crmGeneration: 2,
+        status: { in: ['QUEUED', 'FAILED'] },
+        attemptCount: { lt: MAX_ATTEMPTS },
+        scheduledAt: { lte: new Date() },
+      },
+      select: { id: true, brandId: true },
+      orderBy: [{ scheduledAt: 'asc' }, { id: 'asc' }],
+      take: 50,
+    });
+    let failed = 0;
+    let firstError: unknown;
+    for (const campaign of campaigns) {
+      try {
+        if (!await campaignService.sendCampaign(campaign.id, campaign.brandId)) failed++;
+      } catch (error) {
+        failed++;
+        firstError ??= error;
+        logSafeError('campaigns.item', error, 'crm', { campaignId: campaign.id, brandId: campaign.brandId });
+      }
+    }
+    if (failed) throw firstError ?? Object.assign(new Error('CRM campaign processing partially failed'), { code: 'CRM_PARTIAL_FAILURE' });
   }
 
   // Iterate over brands and trigger evaluation

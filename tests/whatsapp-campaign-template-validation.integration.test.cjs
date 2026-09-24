@@ -70,19 +70,12 @@ test('named template parameters retain their Meta parameter names', () => {
   ]);
 });
 
-test('campaign create persists only the server-verified cached identity and parameter values', async t => {
+test('campaign create persists an offline editable draft and defers provider verification', async t => {
   const { CampaignService } = require('../dist/services/crm/campaign.service');
   let created;
   void prisma.campaign.create;
   t.mock.method(prisma.campaign, 'create', async ({ data }) => { created = data; return data; });
-  const validator = { prepareNew: async (brandId, input) => {
-    assert.equal(brandId, 'brand-a');
-    assert.equal(input.whatsappTemplateId, 'template-a');
-    return {
-      template, parameterValues: { 'header.1': 'Asha', 'body.1': '7' },
-      connectionVersion: current.connectionVersion,
-    };
-  } };
+  const validator = { prepareNew: async () => assert.fail('draft creation must not validate provider state') };
   await new CampaignService(validator).createCampaign('brand-a', {
     name: 'Welcome', channel: 'WHATSAPP', templateBody: 'client-cannot-override',
     whatsappTemplateId: 'template-a', whatsappTemplateLanguage: 'en_US',
@@ -90,11 +83,11 @@ test('campaign create persists only the server-verified cached identity and para
     whatsappTemplateParameters: { 'header.1': 'Asha', 'body.1': '7' },
     scheduledAt: new Date('2026-09-22T00:00:00.000Z'),
   });
-  assert.equal(created.templateBody, 'welcome');
+  assert.equal(created.templateBody, 'client-cannot-override');
   assert.equal(created.whatsappTemplateId, 'template-a');
-  assert.equal(created.whatsappConnectionVersion, current.connectionVersion);
+  assert.equal(created.whatsappConnectionVersion, null);
   assert.deepEqual(created.whatsappTemplateParameters, { 'header.1': 'Asha', 'body.1': '7' });
-  assert.equal(created.status, 'QUEUED');
+  assert.equal(created.status, 'DRAFT');
 });
 
 test('legacy draft cannot queue and a previously queued legacy campaign fails before recipient selection', async t => {

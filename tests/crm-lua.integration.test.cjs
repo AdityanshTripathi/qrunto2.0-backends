@@ -21,6 +21,7 @@ test('CRM: actual Lua dead-letter writes failure state after bounded exponential
   t.mock.method(SegmentService.prototype, 'evaluateAllSegmentsForBrand', async () => ({ processed: 1, failed: 0 }));
   t.mock.method(OccasionService.prototype, 'checkAndSendOccasionMessages', async () => []);
   let attempts = 0;
+  t.mock.method(CampaignService.prototype, 'recoverStaleCampaignWork', async () => {});
   t.mock.method(CampaignService.prototype, 'sendCampaign', async () => { attempts++; throw new Error('synthetic campaign failure'); });
   const store = new LuaStore();
   for (const delay of [1000, 2000]) {
@@ -58,6 +59,7 @@ test('CRM: one brand failure does not stop later brands and prevents a false suc
     return brandId === 'failing-brand' ? { processed: 2, failed: 1 } : { processed: 2, failed: 0 };
   });
   t.mock.method(OccasionService.prototype, 'checkAndSendOccasionMessages', async () => []);
+  t.mock.method(CampaignService.prototype, 'recoverStaleCampaignWork', async () => {});
   const store = new LuaStore();
   await assert.rejects(CRMScheduler.runCycle(now, store), error => error.code === 'CRM_PARTIAL_FAILURE');
   assert.deepEqual(evaluated, ['failing-brand', 'healthy-brand']);
@@ -81,6 +83,7 @@ test('CRM: one campaign failure does not stop later campaigns and is reported fo
     processed.push(campaignId); return campaignId !== 'failed-campaign';
   });
   t.mock.method(OccasionService.prototype, 'checkAndSendOccasionMessages', async () => []);
+  t.mock.method(CampaignService.prototype, 'recoverStaleCampaignWork', async () => {});
   const store = new LuaStore();
   await assert.rejects(CRMScheduler.runCycle(now, store), error => error.code === 'CRM_PARTIAL_FAILURE');
   assert.deepEqual(processed, ['failed-campaign', 'healthy-campaign']);

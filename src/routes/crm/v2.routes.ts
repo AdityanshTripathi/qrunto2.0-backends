@@ -7,7 +7,7 @@ import { authenticate, AuthenticatedRequest, requireRestaurantContext, requireRo
 import { whatsappSignupRateLimiter } from '../../middlewares/auth-rate-limit.middleware';
 import { logSafeError } from '../../lib/safe-error';
 import { ConsentService } from '../../services/crm/consent.service';
-import { CampaignService } from '../../services/crm/campaign.service';
+import { CampaignIdempotencyConflictError, CampaignService } from '../../services/crm/campaign.service';
 import {
   EmbeddedSignupError,
   MetaEmbeddedSignupService,
@@ -273,9 +273,27 @@ router.put('/whatsapp-connection', async (req: AuthenticatedRequest, res) => {
 
 router.post('/campaigns/:id/queue', async (req: AuthenticatedRequest, res) => {
   const brandId = await brandFor(req, res); if (!brandId) return;
-  const queued = await new CampaignService().queueDraft(brandId, String(req.params['id']));
-  if (!queued) { res.status(409).json({ error: 'WhatsApp is unavailable or the campaign is not a draft' }); return; }
-  res.json({ queued: true });
+  const parsed = z.object({ idempotencyKey: z.string().trim().min(1).max(200).optional() }).safeParse(req.body ?? {});
+  if (!parsed.success) { res.status(400).json({ error: 'Invalid queue request' }); return; }
+  const rawHeader = req.headers['idempotency-key'];
+  const headerKey = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader;
+  if (headerKey && parsed.data.idempotencyKey && headerKey !== parsed.data.idempotencyKey) {
+    res.status(409).json({ error: 'Conflicting idempotency keys', code: 'CAMPAIGN_IDEMPOTENCY_CONFLICT' }); return;
+  }
+  const key = headerKey ?? parsed.data.idempotencyKey;
+  if (key !== undefined && (typeof key !== 'string' || key.trim().length < 1 || key.length > 200)) {
+    res.status(400).json({ error: 'Invalid idempotency key' }); return;
+  }
+  try {
+    const queued = await new CampaignService().queueDraft(brandId, String(req.params['id']), key?.trim());
+    if (!queued) { res.status(409).json({ error: 'WhatsApp is unavailable or the campaign is not a draft' }); return; }
+    res.json({ queued: true });
+  } catch (error) {
+    if (error instanceof CampaignIdempotencyConflictError) {
+      res.status(409).json({ error: error.message, code: error.code }); return;
+    }
+    throw error;
+  }
 });
 
 export default router;

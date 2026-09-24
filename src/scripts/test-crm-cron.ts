@@ -81,6 +81,7 @@ export async function main() {
     segments++;
     return { processed: 1, failed: 0 };
   }) as typeof SegmentService.prototype.evaluateAllSegmentsForBrand;
+  CampaignService.prototype.recoverStaleCampaignWork = async () => {};
   CampaignService.prototype.sendCampaign = async () => { campaigns++; dispatchStarted!(); await pending; return true; };
   OccasionService.prototype.checkAndSendOccasionMessages = async () => { occasions++; return []; };
   const now = new Date('2026-09-05T00:00:00Z');

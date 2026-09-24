@@ -39,6 +39,7 @@ model Brand {
   createdAt    DateTime          @default(now()) @map("created_at")
   updatedAt    DateTime          @updatedAt @map("updated_at")
   campaigns    Campaign[]
+  campaignRequests CampaignRequest[]
   tickets      ComplaintTicket[]
   coupons      Coupon[]
   customers    Customer[]
@@ -718,6 +719,7 @@ model Campaign {
   createdAt       DateTime        @default(now()) @map("created_at")
   updatedAt       DateTime        @updatedAt @map("updated_at")
   logs            CampaignLog[]
+  requests        CampaignRequest[]
   brand           Brand           @relation(fields: [brandId], references: [id], onDelete: Cascade)
   segment         Segment?        @relation(fields: [segmentId], references: [id])
 
@@ -729,6 +731,23 @@ model Campaign {
   @@map("campaigns")
 }
 
+model CampaignRequest {
+  id          String   @id @default(uuid())
+  brandId     String   @map("brand_id")
+  operation   String
+  key         String
+  payloadHash String   @map("payload_hash")
+  campaignId  String?  @map("campaign_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  brand       Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  campaign    Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  @@unique([brandId, operation, key])
+  @@index([campaignId])
+  @@map("campaign_requests")
+}
+
 model CampaignLog {
   id           String            @id @default(uuid())
   campaignId   String            @map("campaign_id")
@@ -737,6 +756,9 @@ model CampaignLog {
   errorDetails String?           @map("error_details")
   attemptCount Int               @default(0) @map("attempt_count")
   lastAttemptAt DateTime?        @map("last_attempt_at")
+  // Set immediately before an external provider request. Cancellation treats
+  // these as uncertain rather than claiming it prevented an in-flight send.
+  providerDispatchStartedAt DateTime? @map("provider_dispatch_started_at")
   providerMessageId String?      @unique @map("provider_message_id")
   deliveredAt  DateTime?         @map("delivered_at")
   readAt       DateTime?         @map("read_at")
@@ -1255,14 +1277,23 @@ enum CampaignStatus {
   SENDING
   COMPLETED
   FAILED
+  EXHAUSTED
+  CANCELLED
 }
 
 enum CampaignLogStatus {
   PENDING
+  DISPATCHING
+  // A provider request may have been accepted even though its response was lost.
+  // This state is intentionally not eligible for automatic retry.
+  PENDING_RECONCILIATION
   SENT
   DELIVERED
   READ
   FAILED
+  EXHAUSTED
+  PERMANENTLY_INELIGIBLE
+  CANCELLED
 }
 
 enum TicketStatus {

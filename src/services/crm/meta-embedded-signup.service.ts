@@ -190,15 +190,28 @@ export class MetaEmbeddedSignupService {
       const config = completeConfiguration();
       const token = await this.exchangeCode(config, code);
       const connection = await this.verifyConnection(config, token.accessToken, token.tokenExpiresAt);
-      const existing = await prisma.brandWhatsAppConnection.findUnique({
+      const phoneOwner = await prisma.brandWhatsAppConnection.findUnique({
         where: { phoneNumberId: connection.phoneNumberId },
         select: { brandId: true },
       });
-      if (existing && existing.brandId !== brandId) {
+      if (phoneOwner && phoneOwner.brandId !== brandId) {
         throw new EmbeddedSignupError(
           'WHATSAPP_PHONE_ALREADY_CONNECTED',
           409,
           'This WhatsApp phone number is already connected',
+        );
+      }
+      // Reauthorization restores the existing sender. A different WABA or phone
+      // requires an explicit future replacement flow, never a silent overwrite.
+      const existingBrandConnection = await prisma.brandWhatsAppConnection.findUnique({
+        where: { brandId }, select: { phoneNumberId: true, wabaId: true, source: true },
+      });
+      if (existingBrandConnection?.source === 'EMBEDDED_SIGNUP' &&
+          (existingBrandConnection.phoneNumberId !== connection.phoneNumberId || existingBrandConnection.wabaId !== connection.wabaId)) {
+        throw new EmbeddedSignupError(
+          'WHATSAPP_REAUTH_IDENTITY_MISMATCH',
+          409,
+          'The selected WhatsApp account or phone number does not match this connection',
         );
       }
       await this.connectionWriter.saveVerifiedEmbeddedSignupConnection(brandId, connection);

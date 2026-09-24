@@ -32,3 +32,10 @@ test('WhatsApp: provider call has a timeout, no internal retry, and redacts prov
   await assert.rejects(WhatsAppService.sendTemplateMessage('911234567890','test_template'),/provider rejected/);
   assert.equal(calls,1);assert.equal(JSON.stringify(errors).includes(privateValue),false);assert.equal(JSON.stringify(errors).includes('test-access-token'),false);
 });
+
+test('WhatsApp: ambiguous template transport outcome is never reported as a normal provider failure', async t => {
+  process.env.WHATSAPP_PHONE_NUMBER_ID='test-phone-id'; process.env.WHATSAPP_ACCESS_TOKEN='test-access-token';
+  t.mock.method(global, 'fetch', async () => { throw new Error('socket closed'); });
+  await assert.rejects(WhatsAppService.sendTemplateMessage('911234567890', 'test_template'), error =>
+    error.code === 'WHATSAPP_PROVIDER_OUTCOME_UNCERTAIN');
+});
