@@ -126,6 +126,20 @@ test('template sync enforces a finite pagination limit', async () => {
   assert.equal(h.commits.length, 0);
 });
 
+test('cached template listing remains readable while disconnected, while eligible listing still requires a verified current sender', async () => {
+  const { WhatsAppTemplateSyncService } = require('../dist/services/crm/whatsapp-template-sync.service');
+  const h = harness({ pages: [] });
+  h.connection.getActiveTemplateSnapshot = async () => { throw Object.assign(new Error('unavailable'), { code: 'WHATSAPP_VERIFIED_CONNECTION_REQUIRED' }); };
+  h.repository.list = async (brandId, wabaId) => [{
+    id: 'cached', brandId, wabaId: 'old-waba', metaTemplateId: 'meta', templateName: 'draft-safe',
+    languageCode: 'en_US', category: 'MARKETING', approvalStatus: 'APPROVED',
+    parameterSchema: { version: 1, parameters: [] }, lastSyncedAt: new Date(), componentsJson: [],
+  }];
+  const service = new WhatsAppTemplateSyncService(h.fetchImpl, h.connection, h.repository);
+  assert.deepEqual((await service.listCached('brand-a')).map(item => item.id), ['cached']);
+  await assert.rejects(service.listCurrent('brand-a', true), error => error.code === 'WHATSAPP_VERIFIED_CONNECTION_REQUIRED');
+});
+
 test('eligible cache listing excludes rejected, removed, stale WABA, and other brands', async () => {
   const { filterEligibleTemplates } = require('../dist/services/crm/whatsapp-template-sync.service');
   const rows = [

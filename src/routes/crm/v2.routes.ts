@@ -197,7 +197,7 @@ router.get('/whatsapp/templates', async (req: AuthenticatedRequest, res) => {
   const brandId = await brandFor(req, res); if (!brandId) return;
   try {
     const [templates, status] = await Promise.all([
-      new WhatsAppTemplateSyncService().listCurrent(brandId),
+      new WhatsAppTemplateSyncService().listCached(brandId),
       new WhatsAppConnectionService().status(brandId),
     ]);
     res.json({

@@ -288,6 +288,10 @@ export class WhatsAppTemplateSyncService {
     }
   }
 
+  async listCached(brandId: string): Promise<CachedWhatsAppTemplate[]> {
+    return this.repository.list(brandId);
+  }
+
   async listCurrent(brandId: string, eligibleOnly = false): Promise<CachedWhatsAppTemplate[]> {
     const snapshot = await this.connections.getActiveTemplateSnapshot(brandId);
     const rows = await this.repository.list(brandId, snapshot.wabaId);
